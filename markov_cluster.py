@@ -23,12 +23,12 @@ def readGro(fName):
 
 #Gets the positions of all atoms in trajectory trj, run from tpr file tpr, at time t, written to output gro file outGro.
 def getPos(t, trj, tpr, outGro):
-	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	os.system('echo 0 | /share/apps/gromacs467/bin/trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
 	return readGro(outGro)[0]
 
 #same as before except also returns box-length variable
 def getPosB(t,trj,tpr,outGro):
-	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	os.system('echo 0 | /share/apps/gromacs467/bin/trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
 	return readGro(outGro)
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
@@ -116,134 +116,9 @@ def clustInds(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	#print "time: ", t
 	return inds
 
-def hydroRadClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
-	#find and return the hydrodynamic radii of all clusters at some timestep t
-	Rhs = np.array([])
-	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
-	if rm:
-		os.system('rm '+outgro)
-	pots = range(len(peps)/3/ats)
-	inds = np.zeros(len(peps)/3/ats)
-	ind = 1
-	eigvals = np.array([])
-	eigvecs = np.array([])
-	while len(pots) > 0:
-		init = pots[0]
-		pots.remove(init)
-		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
-		#clusts is a list of peptides that are found in the cluster
-		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
-		pepList = np.zeros(len(clusts)*ats*3)
-		curr = 0
-		for clust in clusts:
-			inds[clust] = ind
-			
-			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
-			curr+=1
-		Rh = hydroRad(pepList)
-		Rhs = np.append(Rhs,Rh)
-	return Rhs
-		
-def betaCharacter(posList,ats,cutoff):
-	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
-	N = int(len(posList)/3)
-	cutoff2 = cutoff*cutoff
-	#aMat = np.zeros([N,N]) #adjacency matrix for cluster
-	betaBonds = np.zeros(ats)
-	support = '#include <math.h>'
-	code = """
-	 double d;
-	int ** aMat;
-	int beta;
-	int pbeta;
-    int mj,mc;
-    
-	aMat = (int**) malloc(N*sizeof(int*));
-    for (int k = 0; k < N; k++){
-        aMat[k] = (int *) malloc(N*sizeof(int));
-    }
-
-	for (int i = 0; i < N; i++){
-		mc = i/((int) ats);
-		for (int j = 0; j < i; j++){
-			mj = j/((int) ats);
-			if (mj!=mc){
-				d = (posList[3*i]-posList[3*j])*(posList[3*i]-posList[3*j])+(posList[3*i+1]-posList[3*j+1])*(posList[3*i+1]-posList[3*j+1])+(posList[3*i+2]-posList[3*j+2])*(posList[3*i+2]-posList[3*j+2]);
-				if (d < ((double) cutoff2)){
-					aMat[i][j] = 1;
-				}
-				else{
-					aMat[i][j] = 0;
-				}
-			}
-		}
-
-	}
-
-	int totbonds = 0;
-	for (int i = 1; i < N; i++){
-		beta = 0;
-		for (int j = i; j < N; j++){
-			if (aMat[j][j-i] == 1){
-				beta++;
-			}
-			else{
-			    if (beta > 0){
-				betaBonds[beta-1] = betaBonds[beta-1]+1.0;
-				totbonds++;
-			    }
-				beta = 0;
-				//pbeta = 0;
-			}
-		}
-        if (beta > 0){
-            betaBonds[beta-1] = betaBonds[beta-1]+1.0;
-	    totbonds++;
-        }
-
-	}
-	free(aMat);
-	"""
-	weave.inline(code,['posList','N','ats','cutoff2','betaBonds'],support_code = support,libraries=['m'])
-    	return betaBonds
-
-def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
-	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
-	#like a beta-ladder kind of thing for each cluster
-	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
-	#print box_length
-	if rm:
-		os.system('rm '+outgro)
-	pots = range(len(peps)/3/ats)
-	inds = np.zeros(len(peps)/3/ats)
-	ind = 1
-	betachars = np.empty((0,ats),float)
-	
-	while len(pots) > 0:
-		
-		init = pots[0]
-		pots.remove(init)
-		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
-		#clusts is a list of peptides that are found in the cluster
-		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
-		pepList = np.zeros(len(clusts)*ats*3)
-		curr = 0
-		#mass = len(clusts);
-		for clust in clusts:
-			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
-			curr+=1
-		betabonds = betaCharacter(pepList,ats,cutoff)
-		#print("found betabonds: ",betabonds)
-		betachars = np.append(betachars,np.array([betabonds]),axis=0)
-		#print(betachars)
-	#print(len(betachars))
-	return betachars
-		
-
 def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	#return the index of which clusters each peptide is in
 	#also the eigenvectors and eigenvalues of the gyration tensor of each cluster
-	#also the hydrodynamic radius
 	#start = time.clock();
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
 	#print box_length
@@ -254,9 +129,6 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	ind = 1
 	eigvals = np.array([])
 	eigvecs = np.array([])
-	ms = np.array([])
-	Rhs = np.array([])
-	Rgs = np.array([])
 	while len(pots) > 0:
 		init = pots[0]
 		pots.remove(init)
@@ -265,7 +137,6 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
 		pepList = np.zeros(len(clusts)*ats*3)
 		curr = 0
-		#mass = len(clusts);
 		for clust in clusts:
 			inds[clust] = ind
 			
@@ -283,21 +154,13 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		eigMorph[4] = 1.5*eigMorph[2]-0.5*eigMorph[3]
 		
 		eigvals = np.append(eigvals,eigMorph)
-		#eigvecs = np.append(eigvecs,eigstuff[1])
-		Rh = hydroRad(pepList)
-		Rhs = np.append(Rhs,Rh)
-		mstuff = np.zeros(3)
-		mass = float(len(clusts))
-		#print Rh
-		#print mass
-		Rgs = np.append(Rgs,eigMorph[3])
-		ms = np.append(ms,mass)
-		#ms = np.append(ms,np.array([mass,eigMorph[3],Rh]))
+		eigvecs = np.append(eigvecs,eigstuff[1])
+		
+		
 	#end = time.clock()
 	#t = end - start
 	#print "time: ", t
-	return (inds,eigvals,eigvecs,Rhs,ms,Rgs)
-
+	return (inds,eigvals,eigvecs)
 
 def gyrTens(posList,box_length):
 	#compute the full gyration tensor and return it
@@ -326,28 +189,6 @@ def gyrTensxy(posList,x,y,boxlx,boxly):
     gxy = gxy/(2*N**2)
     return gxy
 
-def hydroRad(posList):
-	#given a list of atom positions for a cluster, find the average theoretical hydrodynamic radius
-	support = '#include <math.h>'
-	code = """
-	return_val = 0;
-	int i,j;
-	double Rh = 0;
-	int npep = NposList[0]/3;
-	for (i = 0; i < npep;i++){
-		for (j=0; j < npep;j++){
-			if (i!=j){
-				Rh += 1.0/sqrt((posList[3*i]-posList[3*j])*(posList[3*i]-posList[3*j])+(posList[3*i+1]-posList[3*j+1])*(posList[3*i+1]-posList[3*j+1])+(posList[3*i+2]-posList[3*j+2])*(posList[3*i+2]-posList[3*j+2]));
-			}
-		}	
-	}
-	Rh = Rh/(npep*npep);
-	Rh = 1.0/Rh;
-	return_val = Rh;
-	"""
-	Rh = weave.inline(code,['posList'],support_code = support,libraries=['m'])
-	return Rh
-
 def gyrTensxyC(posList,x,y,boxlx,boxly):
     #same as gyrTensxy except using inline C code to test for efficiency
     support = '#include <math.h>'
@@ -372,7 +213,6 @@ def gyrTensxyC(posList,x,y,boxlx,boxly):
     gxy = weave.inline(code,['posList','x','y','boxlx','boxly'],support_code = support,libraries=['m'])
     return gxy
 		
-
 #Given a list of cluster sizes (e.g. [1, 1, 5, 2, 2, 1, ...] corresponds to a monomer, a monomer, a pentamer, a dimer, a dimer, a monomer, etc...) returns a histogram of those cluster sizes (e.g. [50, 20, 10, ...] corresponds to 50 monomers, 20 dimers, 10 trimers, etc...)
 def getHist(myList):
 	return(np.array([[i, myList.count(i)*i] for i in range(1, 64)]))

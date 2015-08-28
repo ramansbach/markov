@@ -2,13 +2,13 @@
 import markov as mk
 
 t0=0 #Initial time of interest in ps
-tf=500000 #Final time of interest in ps
-dt = 5 #Minimum time spacing between .xtc windows in ps (nstxtcout*dt)
-xtc = 'md_whole_restart.xtc' #.xtc file name
-tpr = 'md_dummy.tpr' #.tpr file name
+tf=50000 #Final time of interest in ps
+dt = 10 #Minimum time spacing between .xtc windows in ps (nstxtcout*dt)
+xtc = 'sd1_50ns.xtc' #.xtc file name
+tpr = 'sd10_noc.tpr' #.tpr file name
 cutoff=.5 #minimum distance between any two atoms for system to be considered a cluster
-ats=29 #atoms per molecule (for parsing the .gro file into separate molecules; all atoms in the gro file need to be part of molecules of the same size for cluster analysis. Currently working on fixing this.)
-outputFileName = 'mdrun2_sizes.txt'
+ats=146 #atoms per molecule (for parsing the .gro file into separate molecules; all atoms in the gro file need to be part of molecules of the same size for cluster analysis. Currently working on fixing this.)
+outputFileName = 'longrun1_sizes.txt'
 
 #---------------------------------------------------------#
 
