@@ -1,5 +1,5 @@
 import numpy as np,imp,time#,markov as mk
-mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov.py')
+mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov/markov.py')
 betafname = "betaCounts_short_1.dat"
 t0 = 400000
 tf = 400000

@@ -1,5 +1,5 @@
 import numpy as np,imp,time#,markov as mk
-mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov.py')
+mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov/markov.py')
 indsfname = "tempInds_1.dat"
 scalarfname = "clustScalars_short_2.dat"
 vecfname = "tempVecs_1.dat"
