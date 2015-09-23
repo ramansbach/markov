@@ -144,12 +144,13 @@ def hydroRadClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		Rhs = np.append(Rhs,Rh)
 	return Rhs
 		
-def betaCharacter(posList,ats,cutoff):
+def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
 	N = int(len(posList)/3)
 	cutoff2 = cutoff*cutoff
 	#aMat = np.zeros([N,N]) #adjacency matrix for cluster
-	betaBonds = np.zeros(ats)
+	betaBonds = np.zeros(bbs)
+	print "len(betabonds) = ",len(betaBonds)
 	support = '#include <math.h>'
 	code = """
 	 double d;
@@ -157,23 +158,25 @@ def betaCharacter(posList,ats,cutoff):
 	int beta;
 	int pbeta;
     int mj,mc;
-    
-	aMat = (int**) malloc(N*sizeof(int*));
-    for (int k = 0; k < N; k++){
-        aMat[k] = (int *) malloc(N*sizeof(int));
+         int i,j;
+	aMat = (int**) malloc((N/ats)*bbs*sizeof(int*));
+    for (int k = 0; k < (N/ats)*bbs; k++){
+        aMat[k] = (int *) malloc((N/ats)*bbs*sizeof(int));
     }
 
-	for (int i = 0; i < N; i++){
-		mc = i/((int) ats);
-		for (int j = 0; j < i; j++){
-			mj = j/((int) ats);
+	for (int m = 0; m < (N/ats)*bbs; m++){
+		mc = m/((int) bbs);
+		for (int n = 0; n < m; n++){
+			mj = n/((int) bbs);
 			if (mj!=mc){
+				i = int(bblist[m % bbs])+int(ats)*(int(m)/int(bbs));
+				j = int(bblist[n % bbs])+int(ats)*(int(n)/int(bbs));
 				d = (posList[3*i]-posList[3*j])*(posList[3*i]-posList[3*j])+(posList[3*i+1]-posList[3*j+1])*(posList[3*i+1]-posList[3*j+1])+(posList[3*i+2]-posList[3*j+2])*(posList[3*i+2]-posList[3*j+2]);
 				if (d < ((double) cutoff2)){
-					aMat[i][j] = 1;
+					aMat[m][n] = 1;
 				}
 				else{
-					aMat[i][j] = 0;
+					aMat[m][n] = 0;
 				}
 			}
 		}
@@ -181,9 +184,9 @@ def betaCharacter(posList,ats,cutoff):
 	}
 
 	int totbonds = 0;
-	for (int i = 1; i < N; i++){
+	for (int i = 1; i < (N/ats)*bbs; i++){
 		beta = 0;
-		for (int j = i; j < N; j++){
+		for (int j = i; j < (N/ats)*bbs; j++){
 			if (aMat[j][j-i] == 1){
 				beta++;
 			}
@@ -202,12 +205,14 @@ def betaCharacter(posList,ats,cutoff):
         }
 
 	}
+	
 	free(aMat);
 	"""
-	weave.inline(code,['posList','N','ats','cutoff2','betaBonds'],support_code = support,libraries=['m'])
+	weave.inline(code,['posList','N','ats','cutoff2','betaBonds','bbs','bblist'],support_code = support,libraries=['m'])
+	print "len(betabonds) is ",len(betaBonds)
     	return betaBonds
 
-def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
+def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True,bbs,bblist):
 	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
 	#like a beta-ladder kind of thing for each cluster
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
@@ -232,7 +237,7 @@ def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
-		betabonds = betaCharacter(pepList,ats,cutoff)
+		betabonds = betaCharacter(pepList,ats,cutoff,bbs,bblist)
 		#print("found betabonds: ",betabonds)
 		betachars = np.append(betachars,np.array([betabonds]),axis=0)
 		#print(betachars)
