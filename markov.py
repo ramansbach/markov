@@ -212,7 +212,7 @@ def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	print "len(betabonds) is ",len(betaBonds)
     	return betaBonds
 
-def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True,bbs,bblist):
+def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
 	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
 	#like a beta-ladder kind of thing for each cluster
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
@@ -222,7 +222,7 @@ def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True,bbs,bblist):
 	pots = range(len(peps)/3/ats)
 	inds = np.zeros(len(peps)/3/ats)
 	ind = 1
-	betachars = np.empty((0,ats),float)
+	betachars = np.empty((0,bbs),float)
 	
 	while len(pots) > 0:
 		

@@ -1,4 +1,4 @@
-import numpy as np, time, os, numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
+import numpy as np, time, os, numpy.linalg as npla, scipy.linalg as spla, time, scipy.stats as spst
 from scipy import weave
 from operator import sub, div
 params = {'axes.titlesize':70,
@@ -10,7 +10,7 @@ params = {'axes.titlesize':70,
 		'text.usetex':True,
 		'xtick.major.pad':7,
 		'ytick.major.pad':18}
-plt.rcParams.update(params)
+#plt.rcParams.update(params)
 
 #Takes a .gro file and returns a 1d list of positions. If the gro file format changes, this will break
 def readGro(fName): 
@@ -116,12 +116,10 @@ def clustInds(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	#print "time: ", t
 	return inds
 
-def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
-	#return the index of which clusters each peptide is in
-	#also the eigenvectors and eigenvalues of the gyration tensor of each cluster
-	#start = time.clock();
+def hydroRadClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
+	#find and return the hydrodynamic radii of all clusters at some timestep t
+	Rhs = np.array([])
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
-	#print box_length
 	if rm:
 		os.system('rm '+outgro)
 	pots = range(len(peps)/3/ats)
@@ -142,6 +140,142 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 			
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
+		Rh = hydroRad(pepList)
+		Rhs = np.append(Rhs,Rh)
+	return Rhs
+		
+def betaCharacter(posList,ats,cutoff,bbs,bblist):
+	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
+	N = int(len(posList)/3)
+	cutoff2 = cutoff*cutoff
+	#aMat = np.zeros([N,N]) #adjacency matrix for cluster
+	betaBonds = np.zeros(bbs)
+	print "len(betabonds) = ",len(betaBonds)
+	support = '#include <math.h>'
+	code = """
+	 double d;
+	int ** aMat;
+	int beta;
+	int pbeta;
+    int mj,mc;
+         int i,j;
+	aMat = (int**) malloc((N/ats)*bbs*sizeof(int*));
+    for (int k = 0; k < (N/ats)*bbs; k++){
+        aMat[k] = (int *) malloc((N/ats)*bbs*sizeof(int));
+    }
+
+	for (int m = 0; m < (N/ats)*bbs; m++){
+		mc = m/((int) bbs);
+		for (int n = 0; n < m; n++){
+			mj = n/((int) bbs);
+			if (mj!=mc){
+				i = int(bblist[m % bbs])+int(ats)*(int(m)/int(bbs));
+				j = int(bblist[n % bbs])+int(ats)*(int(n)/int(bbs));
+				d = (posList[3*i]-posList[3*j])*(posList[3*i]-posList[3*j])+(posList[3*i+1]-posList[3*j+1])*(posList[3*i+1]-posList[3*j+1])+(posList[3*i+2]-posList[3*j+2])*(posList[3*i+2]-posList[3*j+2]);
+				if (d < ((double) cutoff2)){
+					aMat[m][n] = 1;
+				}
+				else{
+					aMat[m][n] = 0;
+				}
+			}
+		}
+
+	}
+
+	int totbonds = 0;
+	for (int i = 1; i < (N/ats)*bbs; i++){
+		beta = 0;
+		for (int j = i; j < (N/ats)*bbs; j++){
+			if (aMat[j][j-i] == 1){
+				beta++;
+			}
+			else{
+			    if (beta > 0){
+				betaBonds[beta-1] = betaBonds[beta-1]+1.0;
+				totbonds++;
+			    }
+				beta = 0;
+				//pbeta = 0;
+			}
+		}
+        if (beta > 0){
+            betaBonds[beta-1] = betaBonds[beta-1]+1.0;
+	    totbonds++;
+        }
+
+	}
+	
+	free(aMat);
+	"""
+	weave.inline(code,['posList','N','ats','cutoff2','betaBonds','bbs','bblist'],support_code = support,libraries=['m'])
+	print "len(betabonds) is ",len(betaBonds)
+    	return betaBonds
+
+def betaClust(t,xtc,tpr,outgro,cutoff,ats,rm=True,bbs,bblist):
+	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
+	#like a beta-ladder kind of thing for each cluster
+	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	#print box_length
+	if rm:
+		os.system('rm '+outgro)
+	pots = range(len(peps)/3/ats)
+	inds = np.zeros(len(peps)/3/ats)
+	ind = 1
+	betachars = np.empty((0,ats),float)
+	
+	while len(pots) > 0:
+		
+		init = pots[0]
+		pots.remove(init)
+		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+		#clusts is a list of peptides that are found in the cluster
+		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+		pepList = np.zeros(len(clusts)*ats*3)
+		curr = 0
+		#mass = len(clusts);
+		for clust in clusts:
+			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+			curr+=1
+		betabonds = betaCharacter(pepList,ats,cutoff,bbs,bblist)
+		#print("found betabonds: ",betabonds)
+		betachars = np.append(betachars,np.array([betabonds]),axis=0)
+		#print(betachars)
+	#print(len(betachars))
+	return betachars
+		
+
+def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
+	#return the index of which clusters each peptide is in
+	#also the eigenvectors and eigenvalues of the gyration tensor of each cluster
+	#also the hydrodynamic radius
+	#start = time.clock();
+	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	#print box_length
+	if rm:
+		os.system('rm '+outgro)
+	pots = range(len(peps)/3/ats)
+	inds = np.zeros(len(peps)/3/ats)
+	ind = 1
+	eigvals = np.array([])
+	eigvecs = np.array([])
+	ms = np.array([])
+	Rhs = np.array([])
+	Rgs = np.array([])
+	while len(pots) > 0:
+		init = pots[0]
+		pots.remove(init)
+		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+		#clusts is a list of peptides that are found in the cluster
+		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+		pepList = np.zeros(len(clusts)*ats*3)
+		curr = 0
+		#mass = len(clusts);
+		for clust in clusts:
+			inds[clust] = ind
+			
+			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+			curr+=1
 		gyrationTensor = gyrTens(pepList,box_length)
 		eigstuff = np.linalg.eig(gyrationTensor)
 		ind+=1
@@ -154,13 +288,21 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		eigMorph[4] = 1.5*eigMorph[2]-0.5*eigMorph[3]
 		
 		eigvals = np.append(eigvals,eigMorph)
-		eigvecs = np.append(eigvecs,eigstuff[1])
-		
-		
+		#eigvecs = np.append(eigvecs,eigstuff[1])
+		Rh = hydroRad(pepList)
+		Rhs = np.append(Rhs,Rh)
+		mstuff = np.zeros(3)
+		mass = float(len(clusts))
+		#print Rh
+		#print mass
+		Rgs = np.append(Rgs,eigMorph[3])
+		ms = np.append(ms,mass)
+		#ms = np.append(ms,np.array([mass,eigMorph[3],Rh]))
 	#end = time.clock()
 	#t = end - start
 	#print "time: ", t
-	return (inds,eigvals,eigvecs)
+	return (inds,eigvals,eigvecs,Rhs,ms,Rgs)
+
 
 def gyrTens(posList,box_length):
 	#compute the full gyration tensor and return it
@@ -189,6 +331,28 @@ def gyrTensxy(posList,x,y,boxlx,boxly):
     gxy = gxy/(2*N**2)
     return gxy
 
+def hydroRad(posList):
+	#given a list of atom positions for a cluster, find the average theoretical hydrodynamic radius
+	support = '#include <math.h>'
+	code = """
+	return_val = 0;
+	int i,j;
+	double Rh = 0;
+	int npep = NposList[0]/3;
+	for (i = 0; i < npep;i++){
+		for (j=0; j < npep;j++){
+			if (i!=j){
+				Rh += 1.0/sqrt((posList[3*i]-posList[3*j])*(posList[3*i]-posList[3*j])+(posList[3*i+1]-posList[3*j+1])*(posList[3*i+1]-posList[3*j+1])+(posList[3*i+2]-posList[3*j+2])*(posList[3*i+2]-posList[3*j+2]));
+			}
+		}	
+	}
+	Rh = Rh/(npep*npep);
+	Rh = 1.0/Rh;
+	return_val = Rh;
+	"""
+	Rh = weave.inline(code,['posList'],support_code = support,libraries=['m'])
+	return Rh
+
 def gyrTensxyC(posList,x,y,boxlx,boxly):
     #same as gyrTensxy except using inline C code to test for efficiency
     support = '#include <math.h>'
@@ -213,6 +377,7 @@ def gyrTensxyC(posList,x,y,boxlx,boxly):
     gxy = weave.inline(code,['posList','x','y','boxlx','boxly'],support_code = support,libraries=['m'])
     return gxy
 		
+
 #Given a list of cluster sizes (e.g. [1, 1, 5, 2, 2, 1, ...] corresponds to a monomer, a monomer, a pentamer, a dimer, a dimer, a monomer, etc...) returns a histogram of those cluster sizes (e.g. [50, 20, 10, ...] corresponds to 50 monomers, 20 dimers, 10 trimers, etc...)
 def getHist(myList):
 	return(np.array([[i, myList.count(i)*i] for i in range(1, 64)]))
