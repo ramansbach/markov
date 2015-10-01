@@ -1,4 +1,4 @@
-import numpy as np, time, os, numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
+import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
 from scipy import weave
 from operator import sub, div
 params = {'axes.titlesize':70,
@@ -21,6 +21,36 @@ def readGro(fName):
 	boxL3 = float(myLns[len(myLns)-1].split()[2])
 	return (np.array([[float(myLns[i][20:].split()[0]), float(myLns[i][20:].split()[1]), float(myLns[i][20:].split()[2])] for i in range(2, len(myLns)-1)]).flatten(),np.array([boxL1,boxL2,boxL3]))
 
+#Takes a 1d list of positions, a filename, and box vectors and writes out a gro file
+#molStructure is a list defining the name,type, and number of each atom (assume all molecules are the same)
+def writeGro(fName,poslist,boxV,molStructure):
+	f = open(fName,'w')
+	atomno = len(molStructure)/2
+	molno = len(poslist)/(3*atomno)
+	f.write("This is a k-mer library file\n")
+	f.write(str(len(poslist)/3)+"\n")
+	#print atomno
+	#print molno
+	#print np.size(poslist)
+	atomind = 1
+	for m in range(molno):
+		for a in range(atomno):
+			
+			pos = poslist[3*m*atomno+3*a:3*m*atomno+3*a+3]
+			aname = molStructure[2*(a % atomno)]
+			atype = molStructure[2*(a % atomno)+1]
+			#ano = molStructure[2*(a % atomno)+2]
+			#print pos			
+			line = "%8s%7s%5d%8.3f%8.3f%8.3f%8.4f%8.4f%8.4f" % (aname,atype,atomind,pos[0],pos[1],pos[2],0.0,0.0,0.0)
+			
+			f.write(line+"\n")
+			atomind+=1
+	boxline = "%f %f %f \n" % (boxV[0],boxV[1],boxV[2])
+	f.write(boxline)
+	f.close()
+			
+
+
 #Gets the positions of all atoms in trajectory trj, run from tpr file tpr, at time t, written to output gro file outGro.
 def getPos(t, trj, tpr, outGro):
 	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
@@ -29,6 +59,11 @@ def getPos(t, trj, tpr, outGro):
 #same as before except also returns box-length variable
 def getPosB(t,trj,tpr,outGro):
 	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	return readGro(outGro)
+
+#same as before except also returns box-length variable and makes whole pbcs
+def getPosBWhole(t,trj,tpr,outGro):
+	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr + ' -pbc whole')
 	return readGro(outGro)
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
@@ -62,6 +97,44 @@ def getNeigh(ind, cutoff, peplist, potentialInds, ats):
 	
 	return ret
 
+#Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide. This version assumes periodic boundary conditions
+def getNeighPBC(ind, cutoff, peplist, potentialInds, ats,boxlx,boxly,boxlz):
+	ret = []
+
+	cutsq = cutoff**2
+	support = '#include <math.h>'
+
+	code = """
+
+	int i, j;
+	return_val = 0;
+	double x,y,z;
+	for(i=0; i<Npep1[0]/3; i++){
+		for(j=0; j<Npep2[0]/3; j++){
+			x = pep1[3*i]-pep2[3*j];
+			y = pep1[3*i+1]-pep2[3*j+1];
+			z = pep1[3*i+2]-pep2[3*j+2];
+			x = x - ((double) boxlx)*round(x/((double) boxlx));
+			y = y - ((double) boxly)*round(y/((double) boxly));
+			z = z - ((double) boxlz)*round(z/((double) boxlz));
+			if (x*x + y*y + z*z < cutsq){
+				return_val = 1;
+				break;
+			}
+		}
+		if(return_val == 1)
+			break;
+	}
+			"""
+	pep1 = peplist[ind*3*ats:(ind+1)*3*ats] #Assumes all peptides have ats atoms in them. The 3 is for 3 coords in 3 dimensions.
+	for i in range(len(potentialInds)):
+		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
+		test = weave.inline(code,['pep1', 'pep2', 'cutsq','boxlx','boxly','boxlz'], support_code = support, libraries = ['m'])
+		if test == 1:
+			ret.append(potentialInds[i])
+	
+	return ret
+
 #Returns an array of arrays. Each inner array is a list of peptide indices that are in the same cluster. A cluster is defined as the largest list of molecules for which each molecule in the list is neighbors either directly or indirectly (neighbors of neighbors of neighbors etc...) neighbors with each other molecule. ind is the atom to check the cluster of, cutoff is the minimum distance that defines neighbors, peplist is a list of all atoms in the simulation, potentialInds is the list of indices that could possibly be neighbors with ind, ats is the number of atoms per peptide (this is important for dividing up pepList and must be constant for all peptides in pepList), and printMe is a boolean that will cause the immediate neighbors of ind to be printed if it is true (more for debuging and checking things).
 def getClust(ind, cutoff, pepList, potentialInds, ats, printMe):
 	#start = time.clock()
@@ -79,6 +152,25 @@ def getClust(ind, cutoff, pepList, potentialInds, ats, printMe):
 	#end = time.clock();
 	#print end - start;
 	return neighInds
+
+#Returns an array of arrays. Each inner array is a list of peptide indices that are in the same cluster. A cluster is defined as the largest list of molecules for which each molecule in the list is neighbors either directly or indirectly (neighbors of neighbors of neighbors etc...) neighbors with each other molecule. ind is the atom to check the cluster of, cutoff is the minimum distance that defines neighbors, peplist is a list of all atoms in the simulation, potentialInds is the list of indices that could possibly be neighbors with ind, ats is the number of atoms per peptide (this is important for dividing up pepList and must be constant for all peptides in pepList), and printMe is a boolean that will cause the immediate neighbors of ind to be printed if it is true (more for debuging and checking things). Assumes PBC
+def getClustPBC(ind, cutoff, pepList, potentialInds, ats, boxlx,boxly,boxlz,printMe):
+	#start = time.clock()
+	neighInds = getNeighPBC(ind, cutoff, pepList, potentialInds, ats,boxlx,boxly,boxlz)
+	if printMe:
+		print("Neighbors of " + str(ind) + " are found to have indices of: ")
+		print(neighInds)
+
+	for neighInd in neighInds:
+		potentialInds.remove(neighInd)
+	for neighInd in neighInds:
+		vals = getClust(neighInd, cutoff, pepList, potentialInds, ats, printMe)
+		if len(vals) > 0:
+			neighInds += vals
+	#end = time.clock();
+	#print end - start;
+	return neighInds
+
 
 #Returns a numpy array with the cluster size that each peptide is part of (eg. [2, 2, 3, 3, 1, 3, ...] means peptides 0 and 1 are part of dimers, peptides 2, 3, and 5 are part of trimers, peptide 4 is a monomer, etc...). t is the time frame of trajectory xtc to look at from run tpr, outgro is the temporary gro file to write to when getting atom positions, cutoff is the minimum distance between two atoms in a peptide to define the peptides as being part of the same cluster, and ats is the number of atoms in a peptide.
 def sizeprof(t, xtc, tpr, outgro, cutoff, ats):
@@ -107,7 +199,7 @@ def clustInds(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	while len(pots) > 0:
 		init = pots[0]
 		pots.remove(init)
-		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+		clusts = getClustPBC(init,cutoff,peps,pots,ats,False) + [init]
 		for clust in clusts:
 			inds[clust] = ind
 		ind+=1
@@ -144,6 +236,87 @@ def hydroRadClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		Rhs = np.append(Rhs,Rh)
 	return Rhs
 		
+def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,rm=True):
+	#write out a library of .gro files of clusters
+	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	if rm:
+		os.system('rm '+outgro)
+	pots = range(len(peps)/3/ats)
+	inds = np.zeros(len(peps)/3/ats)
+	ind = 1
+	clustinds = {}
+	while len(pots) > 0:
+		init = pots[0]
+		pots.remove(init)
+		clusts = getClustPBC(init,cutoff,peps,pots,ats,box_length[0],box_length[1],box_length[2],False) + [init]
+		#clusts is a list of peptides that are found in the cluster
+		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+		pepList = np.zeros(len(clusts)*ats*3)
+		curr = 0
+		for clust in clusts:
+			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+			curr+=1
+		mer = len(clusts)
+		if mer in clustinds:
+			clustinds[mer]+=1
+		else:
+			clustinds[mer] = 1
+		fName = str(mer)+"mer_"+str(clustinds[mer])+".gro"
+		
+		writeGro(fName,pepList,box_length,molStruct)
+		
+def clustMakeup(distrib,nmols):
+	#given a distribution of cluster sizes, output a list consisting of numbers of k-mers of up to nmols that fits the distribution reasonably well but also the correct number of molecules
+	#let distrib be a numpy array
+	nclusts = 0.0
+	for i in range(len(distrib)):
+		nclusts += distrib[i]*i
+	nclusts = nmols/nclusts
+	ndistrib = np.zeros(np.size(distrib))
+	for i in range(len(ndistrib)):
+		ndistrib[i] = round(distrib[i]*nclusts)
+	nmols = 0
+	nclusts = 0
+	for i in range(len(ndistrib)):
+		nmols += i*ndistrib[i]
+		nclusts += ndistrib[i]
+	return (ndistrib,nmols,nclusts)
+
+def prepInitConds(distrib,nmols,libraryns,boxsize):
+	#given a desired distribution of k-mers and a desired number of molecules, prepares a (non-solvated) .gro file with k-mers using library files
+	#libraryns is a list of how many configurations are available for k-mers as library files
+	(ndistrib,nmols,nclusts) = clustMakeup(distrib,nmols)
+	
+	#os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	#cmd = 'export GMX_MAXBACKUP=-1'
+	#e1 = subprocess.Popen(cmd,stdout=subprocess.PIPE)
+	#e1.wait()
+	ind = 0
+	for k in range(len(ndistrib)):
+		n = ndistrib[k]
+		for i in range(int(n)):
+			#randomly choose library file
+			#call gromacs to insert it into box
+			nfiles = libraryns[k]
+			filei = random.randint(1,nfiles)
+			fnamei = str(k+1)+"mer_"+str(filei)+".gro"
+			if ( (k==0) and (i==0)):
+				#call editconf
+				command = ['editconf','-f',fnamei,'-o','init_'+str(ind)+'.gro','-bt','triclinic','-box',str(boxsize[0]),str(boxsize[1]),str(boxsize[2])]
+				ind+=1
+			else:
+				#call genconf
+				command = ['genbox','-cp','init_'+str(ind-1)+'.gro','-o','init_'+str(ind)+'.gro','-ci',fnamei,'-nmol','1','-try','50']	
+				ind+=1
+			p = subprocess.Popen(command,stdout=subprocess.PIPE)
+			p.wait()
+	for j in range(ind-1):
+		os.system('rm init_'+str(j)+'.gro')
+	#cmd = 'export GMX_MAXBACKUP=99'
+	#e2 = subprocess.Popen(cmd,stdout=subprocess.PIPE)
+	#e2.wait()
+	#print "under construction"
+
 def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
 	N = int(len(posList)/3)
