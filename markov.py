@@ -277,8 +277,9 @@ def clustMakeup(distrib,nmols):
 		ndistrib[i] = round(distrib[i]*nclusts)
 	nmols = 0
 	nclusts = 0
+	print ndistrib
 	for i in range(len(ndistrib)):
-		nmols += i*ndistrib[i]
+		nmols += (i+1)*ndistrib[i]
 		nclusts += ndistrib[i]
 	return (ndistrib,nmols,nclusts)
 
@@ -292,7 +293,8 @@ def prepInitConds(distrib,nmols,libraryns,boxsize):
 	#e1 = subprocess.Popen(cmd,stdout=subprocess.PIPE)
 	#e1.wait()
 	ind = 0
-	for k in range(len(ndistrib)):
+	print "nmols is ", nmols
+	for k in range(len(ndistrib)-1,-1,-1):
 		n = ndistrib[k]
 		for i in range(int(n)):
 			#randomly choose library file
@@ -300,16 +302,39 @@ def prepInitConds(distrib,nmols,libraryns,boxsize):
 			nfiles = libraryns[k]
 			filei = random.randint(1,nfiles)
 			fnamei = str(k+1)+"mer_"+str(filei)+".gro"
-			if ( (k==0) and (i==0)):
+			f = open("confs.gro","w")
+			if ( (k==4) and (i==0)):
 				#call editconf
 				command = ['editconf','-f',fnamei,'-o','init_'+str(ind)+'.gro','-bt','triclinic','-box',str(boxsize[0]),str(boxsize[1]),str(boxsize[2])]
+				p = subprocess.call(command)
+				#(outdata,errdata) = p.communicate()
 				ind+=1
+				f.write("configuration "+fnamei)
 			else:
-				#call genconf
-				command = ['genbox','-cp','init_'+str(ind-1)+'.gro','-o','init_'+str(ind)+'.gro','-ci',fnamei,'-nmol','1','-try','50']	
-				ind+=1
-			p = subprocess.Popen(command,stdout=subprocess.PIPE)
-			p.wait()
+				tries = 200
+				trying=-1
+				while trying==-1:
+					#call genconf
+					f.write("configuration "+fnamei)
+					#print "trying ",tries
+					#f = open("temp.txt","w")
+					command = ['genbox','-cp','init_'+str(ind-1)+'.gro','-o','init_'+str(ind)+'.gro','-ci',fnamei,'-nmol','1','-try',str(tries)]	
+					
+					p = subprocess.call(command)
+					#(outdata,errdata) = p.communicate()
+					#p.wait()
+					#f.close()
+					#f2 = open("temp.txt","r")
+					#outdata = f2.read()
+					#trying = outdata.find('Added 1 molecules')
+					#f2.close()
+					#tries+=20
+					ind+=1
+					trying = 1
+			
+			#print "START: ",outdata
+			#print "END: ",errdata
+	f.close()
 	for j in range(ind-1):
 		os.system('rm init_'+str(j)+'.gro')
 	#cmd = 'export GMX_MAXBACKUP=99'
@@ -621,6 +646,19 @@ def getsizes(tlist, xtc, tpr, outgro, cutoff, ats):
 #Saves a list of cluster sizes for all time steps in tlist from run trajectory xtc.
 def sizerun(tlist, xtc, tpr, cutoff, ats, fnm='out.txt', outgro = 'temp.gro'):
 	savedclusts([getsizes(tlist, xtc, tpr, outgro, cutoff, ats)], fnm=fnm)
+
+#Same as sizerun, but divides the .xtc file into separate .gro files with trjconv. This should be faster when all frames are needed, but does not have the option of using fewer than all.
+def sizerun2(xtc, tpr, cutoff, ats, fnm='out.txt', outgro = 'temp.gro', ind=''):
+
+	grobase = outgro[:outgro.index('.')]
+	if ind == '':
+		os.system('trjconv -s %s -f %s -o %s -sep' % (tpr, xtc, outgro))
+	else:
+		os.system('trjconv -s %s -f %s -o %s -n %s -sep' % (tpr, xtc, outgro, ind))
+
+	savedclusts([getsizes2(grobase, cutoff, ats)], fnm=fnm)
+	os.system('rm %s*.gro' % grobase)
+	return
 	
 #The reverse operation of savedclusts. It reads a file written by savedclusts and returns information of the forms [np.array(mat0), np.array(mat1), np.array(mat2), ...]
 def readdclusts(fnm = 'out.txt'):
