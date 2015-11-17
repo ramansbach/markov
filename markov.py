@@ -341,6 +341,254 @@ def prepInitConds(distrib,nmols,libraryns,boxsize):
 	#e2 = subprocess.Popen(cmd,stdout=subprocess.PIPE)
 	#e2.wait()
 	#print "under construction"
+def aromaCross(arom,molInds,posList,boxL):
+	
+	b11 = molInds[arom[0]*3:arom[0]*3+3]
+	b12 = molInds[arom[1]*3:arom[1]*3+3]
+	b13 = molInds[arom[2]*3:arom[2]*3+3]
+	b11p = posList[b11]
+	b12p = posList[b12]
+	b13p = posList[b13]
+	db1 = b13p - b12p
+	db2 = b12p - b11p
+	for i in range(3):
+		db1[i] = db1[i] - boxL[i]*round(db1[i]/boxL[i])
+		db2[i] = db2[i] - boxL[i]*round(db2[i]/boxL[i])
+	aromaPlane = np.cross(db1,db2)
+	return aromaPlane
+
+def aromaticData(posList,ats,beadList,beadMasses,aromBeads,aromMass,boxLs):
+	#characterize the COM location and orientation of the aromatic rings in the backbone (beads 10, 11, 12, 13, 14, 15, 16, 17, 21, 20, 19 for DFAG)
+	#right now assumes molecules have been made whole and that there are three aromatic rings in the backbone that we are being given
+	#orient is the two vectors pointing from the first to the second aromatic ring and from the second to the third
+	#also return the three vectors of the planes of the aromatic rings as aromaPlanes
+	N = int(len(posList)/3) #number of atoms
+	nmols = N/ats
+	coms = np.zeros([nmols,3])
+	orients = np.zeros([nmols,6])
+	aromaPlanes = np.zeros([nmols,9])
+	#loop over each group of aromatic rings and calculate COM and orient
+	#molinds = indices of each molecule: 0:3*ats-1, 3*ats:2(3*ats)-1,...,(N-1)(3*ats):N(3*ats)-1
+	#indices of each aromatic group: molinds[3*beadList:3*beadList+2]
+	for i in range(nmols):
+		molInds = range(i*(3*ats),(i+1)*(3*ats))
+		#aromInds = molinds[3*beadList:3*beadList+2]
+		#endInds = molinds[3*endList:3*endList+2]
+		com = np.array([0.0,0.0,0.0])
+		M = 0.0
+		j = 0
+		beadInd0 = molInds[beadList[0]*3:beadList[0]*3+3]
+		b0 = posList[beadInd0]
+		m0 = beadMasses[0]
+		for bead in beadList:
+			beadInds = molInds[bead*3:bead*3+3]
+			b = posList[beadInds]
+			m = beadMasses[j]
+			#print "b ", b
+			#print m
+			#print com
+			j+=1
+			db = b - b0
+			for dbind in range(3):
+				db[dbind] = db[dbind] - boxLs[dbind]*round(db[dbind]/boxLs[dbind])
+			#compute com assuming first bead is at (0,0,0) with PBCs included
+			com += m*db
+			#print "com ",com
+			M+=m
+		
+		com = com/M + b0
+		#end1 = molInds[endList[0]*3:endList[0]*3+3]
+		#end2 = molInds[endList[1]*3:endList[1]*3+3]
+		arom1 = aromBeads[0:3]
+		arom2 = aromBeads[3:6]
+		arom3 = aromBeads[6:9]
+		coma1 = np.array([0.0,0.0,0.0])
+		coma2 = np.array([0.0,0.0,0.0])
+		coma3 = np.array([0.0,0.0,0.0])
+		"""		
+		ma1 = 0.0
+		ma2 = 0.0
+		ma3 = 0.0
+		
+		for k in range(3):
+			b1 = molInds[arom1[k]*3:arom1[k]*3+3]
+			b2 = molInds[arom2[k]*3:arom2[k]*3+3]
+			b3 = molInds[arom3[k]*3:arom3[k]*3+3]
+			b1p = posList[b1]
+			b2p = posList[b2]
+			b3p = posList[b3]
+			m1 = aromMass[k]
+			m2 = aromMass[k+3]
+			m3 = aromMass[k+6]
+			coma1 += m1*b1p
+			coma2 += m2*b2p
+			coma3 += m3*b3p
+			ma1 += m1
+			ma2 += m2
+			ma3 += m3
+		coma1 = coma1/ma1
+		coma2 = coma2/ma2
+		coma3 = coma3/ma3
+		"""
+		coma1 = aromaCOM(arom1,posList,aromMass[0:3],molInds,boxLs)
+		coma2 = aromaCOM(arom2,posList,aromMass[3:6],molInds,boxLs)
+		coma3 = aromaCOM(arom3,posList,aromMass[6:9],molInds,boxLs)
+		aromaPlane1 = aromaCross(arom1,molInds,posList,boxLs)
+		aromaPlane2 = aromaCross(arom2,molInds,posList,boxLs)
+		aromaPlane3 = aromaCross(arom3,molInds,posList,boxLs)
+		comaa = coma3 - coma2
+		comaa = comaa - boxLs*np.round(comaa/boxLs)
+		comab = coma2 - coma1
+		comab = comab - boxLs*np.round(comab/boxLs)
+		orient = np.concatenate((comaa,comab),axis=0)
+		coms[i,:] = com
+		orients[i,:] = orient
+		aromaPlanes[i,:] = np.concatenate((aromaPlane1,aromaPlane2,aromaPlane3),axis=0)
+	return (coms,orients,aromaPlanes)
+
+def aromaCOM(arom,posList,aromMass,molInds,boxL):
+	b0 = molInds[arom[0]*3:arom[0]*3+3]
+	b0p = posList[b0]
+	b1 = molInds[arom[1]*3:arom[1]*3+3]
+	b1p = posList[b1]
+	b2 = molInds[arom[2]*3:arom[2]*3+3]
+	b2p = posList[b2]
+	db1 = b1p - b0p
+	db2 = b2p - b0p
+	db1 = db1 - boxL*np.round(db1/boxL)
+	db2 = db2 - boxL*np.round(db2/boxL)
+	coma = (aromMass[1]*db1 + aromMass[2]*db2)/(aromMass[0]+aromMass[1]+aromMass[2]) + b0p
+	return coma
+
+def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,endList,aromBeads,rm=True):
+	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
+	#like a beta-ladder kind of thing for each cluster
+	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	#print box_length
+	if rm:
+		os.system('rm '+outgro)
+	pots = range(len(peps)/3/ats)
+	inds = np.zeros(len(peps)/3/ats)
+	ind = 1
+	achars = np.empty((0,7),float)
+	cNum = 0
+	while len(pots) > 0:
+		
+		init = pots[0]
+		pots.remove(init)
+		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+		#clusts is a list of peptides that are found in the cluster
+		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+		pepList = np.zeros(len(clusts)*ats*3)
+		curr = 0
+		#mass = len(clusts);
+		for clust in clusts:
+			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+			curr+=1
+		(coms,orients,aromaPlanes) = aromaticData(pepList,ats,beadList,beadMasses,endList)
+		#print("found betabonds: ",betabonds)
+		cNums = cNum*np.ones([len(coms),1])
+		adata = np.concatenate((cNums,coms,orients,aromaPlanes),axis=1)
+		achars = np.append(achars,adata,axis=0)
+		#print(betachars)
+		cNum+=1
+	#print(len(betachars))
+	return achars
+
+def aromaticDataC(posList,ats,beadList,beadMasses,endList):
+	#characterize the COM location and orientation of the aromatic rings in the backbone (beads 10, 11, 12, 13, 14, 15, 16, 17, 21, 20, 19 for DFAG)
+	#right now assumes molecules have been made whole
+	N = int(len(posList)/3) #number of atoms
+	nmols = N/ats
+	coms = np.zeros([nmols,3])
+	orients = np.zeros([nmols,3])
+	#loop over each group of aromatic rings and calculate COM and orient
+	#molinds = indices of each molecule: 0:3*ats-1, 3*ats:2(3*ats)-1,...,(N-1)(3*ats):N(3*ats)-1
+	#indices of each aromatic group: molinds[3*beadList:3*beadList+2]
+	support = '#include <math.h>'
+	code = """
+	int * molinds;
+	molinds = (int *) malloc(sizeof(int)*3*ats);
+	double com [3] = {0.0 0.0 0.0};
+	double orient [6] = {0.0 0.0 0.0 0.0 0.0 0.0};
+	double aromaPlane [9] = {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0};
+	double coma [9] = {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0};
+	
+	double M,bx,by,bz,m;
+	int i,j;
+	int bead,beadIndx,beadIndy,beadIndz,end1x,end1y,end1z,end2x,end2y,end2z;
+	for (int i = 0; i < nmols; i++){
+		for (int k = 0; k < 3*ats; k++){
+			molInds[k] = k*3*ats;
+		}
+		for (int k = 0; k < 3; k++){
+			com[k] = 0.0;
+		}
+		M = 0.0;
+		
+		for (int j = 0; j < NbeadList[0]; j++){
+			bead = beadList[j];
+			beadIndx = molInds[bead*3];
+			beadIndy = molInds[bead*3+1];
+			beadIndz = molInds[bead*3+2];
+			bx = posList[beadIndx];
+			by = posList[beadIndy];
+			bz = posList[beadIndz];
+			m = beadMasses[j];
+			com[0] += m*bx;
+			com[1] += m*by;
+			com[2] += m*bz;
+			M+=m;
+		}
+		com[0] = com[0]/M;
+		com[1] = com[1]/M;
+		com[2] = com[2]/M;
+		for (int is = 0; is < 3; is++){
+			
+			ma1 = aromMass[is];
+			ma2 = aromMass[is+1];
+			ma3 = aromMass[is+2];
+			arom1 = aromBeads[3*is];
+			arom2 = aromBeads[3*is+1];
+			arom3 = aromBeads[3*is+2];
+			arom1Indx = molInds[arom1*3];
+			arom1Indy = molInds[arom1*3+1];
+			arom1Indz = molInds[arom1*3+2];
+			a1x = posList[arom1Indx];
+			a1y = posList[arom1Indy];
+			a1z = posList[arom1Indz];
+			arom2Indx = molInds[arom2*3];
+			arom2Indy = molInds[arom2*3+1];
+			arom2Indz = molInds[arom2*3+2];
+			a2x = posList[arom2Indx];
+			a2y = posList[arom2Indy];
+			a2z = posList[arom2Indz];
+			arom3Indx = molInds[arom3*3];
+			arom3Indy = molInds[arom3*3+1];
+			arom3Indz = molInds[arom3*3+2];
+			a3x = posList[arom3Indx];
+			a3y = posList[arom3Indy];
+			a3z = posList[arom3Indz];
+			
+			coma[is] = (ma1*a1x+ma2*a2x+ma3*a3x)/(ma1+ma2+ma3);
+			coma[is+1] = (ma1*a1y+ma2*a2y+ma3*a3y)/(ma1+ma2+ma3);
+			coma[is+2] = (ma1*a1z+ma2*a2z+ma3*a3z)/(ma1+ma2+ma3);
+			
+			aromaPlane[is] = (a3y-a2y)*(a2z-a1z)-(a3z-a2z)*(a2y-a1y);
+			aromaPlane[is+1] = -(a3x-a2x)*(a2z-a1z)+(a3z-a2z)*(a2x-a1x);
+			aromaPlane[is+2] = (a3x-a2x)*(a2y-a1y)-(a3y-a2y)*(a2x-a1x);
+			
+		}
+		coms[i,0] = com[0];
+		coms[i,1] = com[1];
+		coms[i,2] = com[2];
+		orients[i,0] = orient[0];
+		orients[i,1] = orient[1];
+		orients[i,2] = orient[2];
+	}
+	"""
+	weave.inline(code,['posList','ats','nmols','orients','beadList','beadMasses','coms'],support_code = support,libraries=['m'])
+	return (coms,orients,aromaPlanes)
 
 def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
@@ -348,7 +596,7 @@ def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	cutoff2 = cutoff*cutoff
 	#aMat = np.zeros([N,N]) #adjacency matrix for cluster
 	betaBonds = np.zeros(bbs)
-	print "len(betabonds) = ",len(betaBonds)
+	#print "len(betabonds) = ",len(betaBonds)
 	support = '#include <math.h>'
 	code = """
 	 double d;
@@ -407,7 +655,7 @@ def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	free(aMat);
 	"""
 	weave.inline(code,['posList','N','ats','cutoff2','betaBonds','bbs','bblist'],support_code = support,libraries=['m'])
-	print "len(betabonds) is ",len(betaBonds)
+	#print "len(betabonds) is ",len(betaBonds)
     	return betaBonds
 
 def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
@@ -421,7 +669,7 @@ def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
 	inds = np.zeros(len(peps)/3/ats)
 	ind = 1
 	betachars = np.empty((0,bbs),float)
-	
+        ms = np.array([])	
 	while len(pots) > 0:
 		
 		init = pots[0]
@@ -431,7 +679,7 @@ def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
 		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
 		pepList = np.zeros(len(clusts)*ats*3)
 		curr = 0
-		#mass = len(clusts);
+		mass = float(len(clusts))
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
@@ -439,8 +687,9 @@ def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
 		#print("found betabonds: ",betabonds)
 		betachars = np.append(betachars,np.array([betabonds]),axis=0)
 		#print(betachars)
+		ms = np.append(ms,mass)
 	#print(len(betachars))
-	return betachars
+	return (ms,betachars)
 		
 
 def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
