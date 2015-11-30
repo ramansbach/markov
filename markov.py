@@ -58,8 +58,14 @@ def getPos(t, trj, tpr, outGro):
 
 #same as before except also returns box-length variable
 def getPosB(t,trj,tpr,outGro):
-	os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	#os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+	p1 = subprocess.Popen(["trjconv","-f",trj,"-o",outGro,"-b",str(t),"-e",str(t),"-s",tpr],stdin = subprocess.PIPE)
+	p1.communicate("0")
 	return readGro(outGro)
+
+#same as before except assumes we have the .gro files already
+def getPosB2(ind, grobase):
+	return readGro(grobase + str(ind) + '.gro')
 
 #same as before except also returns box-length variable and makes whole pbcs
 def getPosBWhole(t,trj,tpr,outGro):
@@ -364,7 +370,7 @@ def aromaticData(posList,ats,beadList,beadMasses,aromBeads,aromMass,boxLs):
 	#also return the three vectors of the planes of the aromatic rings as aromaPlanes
 	N = int(len(posList)/3) #number of atoms
 	nmols = N/ats
-	coms = np.zeros([nmols,3])
+	comsPBC = np.zeros([nmols,3])
 	orients = np.zeros([nmols,6])
 	aromaPlanes = np.zeros([nmols,9])
 	#loop over each group of aromatic rings and calculate COM and orient
@@ -374,77 +380,58 @@ def aromaticData(posList,ats,beadList,beadMasses,aromBeads,aromMass,boxLs):
 		molInds = range(i*(3*ats),(i+1)*(3*ats))
 		#aromInds = molinds[3*beadList:3*beadList+2]
 		#endInds = molinds[3*endList:3*endList+2]
-		com = np.array([0.0,0.0,0.0])
+		comPBC = np.array([0.0,0.0,0.0])
 		M = 0.0
 		j = 0
 		beadInd0 = molInds[beadList[0]*3:beadList[0]*3+3]
 		b0 = posList[beadInd0]
+		#print "b0 ",b0
 		m0 = beadMasses[0]
 		for bead in beadList:
 			beadInds = molInds[bead*3:bead*3+3]
 			b = posList[beadInds]
 			m = beadMasses[j]
-			#print "b ", b
-			#print m
-			#print com
 			j+=1
 			db = b - b0
-			for dbind in range(3):
-				db[dbind] = db[dbind] - boxLs[dbind]*round(db[dbind]/boxLs[dbind])
-			#compute com assuming first bead is at (0,0,0) with PBCs included
-			com += m*db
-			#print "com ",com
+			db = db - boxLs * np.round(db/boxLs)
+			comPBC += m*db
 			M+=m
 		
-		com = com/M + b0
-		#end1 = molInds[endList[0]*3:endList[0]*3+3]
-		#end2 = molInds[endList[1]*3:endList[1]*3+3]
+		comPBC = comPBC/M + b0
 		arom1 = aromBeads[0:3]
 		arom2 = aromBeads[3:6]
 		arom3 = aromBeads[6:9]
 		coma1 = np.array([0.0,0.0,0.0])
 		coma2 = np.array([0.0,0.0,0.0])
 		coma3 = np.array([0.0,0.0,0.0])
-		"""		
-		ma1 = 0.0
-		ma2 = 0.0
-		ma3 = 0.0
-		
-		for k in range(3):
-			b1 = molInds[arom1[k]*3:arom1[k]*3+3]
-			b2 = molInds[arom2[k]*3:arom2[k]*3+3]
-			b3 = molInds[arom3[k]*3:arom3[k]*3+3]
-			b1p = posList[b1]
-			b2p = posList[b2]
-			b3p = posList[b3]
-			m1 = aromMass[k]
-			m2 = aromMass[k+3]
-			m3 = aromMass[k+6]
-			coma1 += m1*b1p
-			coma2 += m2*b2p
-			coma3 += m3*b3p
-			ma1 += m1
-			ma2 += m2
-			ma3 += m3
-		coma1 = coma1/ma1
-		coma2 = coma2/ma2
-		coma3 = coma3/ma3
-		"""
 		coma1 = aromaCOM(arom1,posList,aromMass[0:3],molInds,boxLs)
 		coma2 = aromaCOM(arom2,posList,aromMass[3:6],molInds,boxLs)
 		coma3 = aromaCOM(arom3,posList,aromMass[6:9],molInds,boxLs)
 		aromaPlane1 = aromaCross(arom1,molInds,posList,boxLs)
 		aromaPlane2 = aromaCross(arom2,molInds,posList,boxLs)
 		aromaPlane3 = aromaCross(arom3,molInds,posList,boxLs)
+		#normalize vectors
+		aromaPlane1 = aromaPlane1/np.sqrt(sum(aromaPlane1**2))
+		aromaPlane2 = aromaPlane2/np.sqrt(sum(aromaPlane2**2))
+		aromaPlane3 = aromaPlane3/np.sqrt(sum(aromaPlane3**2))
 		comaa = coma3 - coma2
 		comaa = comaa - boxLs*np.round(comaa/boxLs)
 		comab = coma2 - coma1
 		comab = comab - boxLs*np.round(comab/boxLs)
 		orient = np.concatenate((comaa,comab),axis=0)
-		coms[i,:] = com
+		#put comPBC inside box if it isn't
+		#print "comPBC is ",comPBC
+		comPBC = inBox(comPBC,boxLs)
+		#print "comPBC is now ",comPBC
+		comsPBC[i,:] = comPBC
 		orients[i,:] = orient
 		aromaPlanes[i,:] = np.concatenate((aromaPlane1,aromaPlane2,aromaPlane3),axis=0)
-	return (coms,orients,aromaPlanes)
+	return (comsPBC,orients,aromaPlanes)
+
+def inBox(r,boxLs):
+	for i in range(3):
+		r[i] = r[i] - boxLs[i]*((int(r[i])/int(boxLs[i])))
+	return r
 
 def aromaCOM(arom,posList,aromMass,molInds,boxL):
 	b0 = molInds[arom[0]*3:arom[0]*3+3]
@@ -454,13 +441,16 @@ def aromaCOM(arom,posList,aromMass,molInds,boxL):
 	b2 = molInds[arom[2]*3:arom[2]*3+3]
 	b2p = posList[b2]
 	db1 = b1p - b0p
-	db2 = b2p - b0p
+	db2 = b2p - b0p 
+	#print db1
+	#print db2
+	#print boxL
 	db1 = db1 - boxL*np.round(db1/boxL)
 	db2 = db2 - boxL*np.round(db2/boxL)
 	coma = (aromMass[1]*db1 + aromMass[2]*db2)/(aromMass[0]+aromMass[1]+aromMass[2]) + b0p
 	return coma
 
-def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,endList,aromBeads,rm=True):
+def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,aromMass,rm=True):
 	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
 	#like a beta-ladder kind of thing for each cluster
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
@@ -470,7 +460,7 @@ def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,endList,aromBe
 	pots = range(len(peps)/3/ats)
 	inds = np.zeros(len(peps)/3/ats)
 	ind = 1
-	achars = np.empty((0,7),float)
+	achars = np.empty((0,20),float)
 	cNum = 0
 	while len(pots) > 0:
 		
@@ -485,47 +475,71 @@ def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,endList,aromBe
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
-		(coms,orients,aromaPlanes) = aromaticData(pepList,ats,beadList,beadMasses,endList)
+		(coms,orients,aromaPlanes) = aromaticDataC(pepList,ats,beadList,beadMasses,aromBeads,aromMass,box_length)
 		#print("found betabonds: ",betabonds)
 		cNums = cNum*np.ones([len(coms),1])
-		adata = np.concatenate((cNums,coms,orients,aromaPlanes),axis=1)
-		achars = np.append(achars,adata,axis=0)
+		cSizes = len(clusts)*np.ones([len(coms),1])
+		#print cNums
+		adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes),axis=1)
+		#print np.size(adata)
+		#print np.size(achars[0])
+		#print achars
+		#print adata
+		#print achars
+		achars = np.concatenate((achars,adata),axis=0)
+		#print achars
+		#print achars
 		#print(betachars)
 		cNum+=1
+		#print cNum
+		#print np.size(achars[0])
+		#print np.size(achars[1])
+		#print np.shape(achars)
 	#print(len(betachars))
+	#return cluster #, cluster size, coms, orients, aromaPlanes
+	
 	return achars
 
-def aromaticDataC(posList,ats,beadList,beadMasses,endList):
+def aromaticDataC(posList,ats,beadList,beadMasses,aromBeads,aromMass,boxLs):
+	coms = aromaticCOMC(posList,ats,beadList,beadMasses,boxLs)
+	(orients,aromaPlanes) = aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs)
+	return (coms,orients,aromaPlanes)
+
+def aromaticCOMC(posList,ats,beadList,beadMasses,boxLs):
 	#characterize the COM location and orientation of the aromatic rings in the backbone (beads 10, 11, 12, 13, 14, 15, 16, 17, 21, 20, 19 for DFAG)
 	#right now assumes molecules have been made whole
 	N = int(len(posList)/3) #number of atoms
 	nmols = N/ats
-	coms = np.zeros([nmols,3])
-	orients = np.zeros([nmols,3])
+	coms = np.zeros(3*nmols)
 	#loop over each group of aromatic rings and calculate COM and orient
 	#molinds = indices of each molecule: 0:3*ats-1, 3*ats:2(3*ats)-1,...,(N-1)(3*ats):N(3*ats)-1
 	#indices of each aromatic group: molinds[3*beadList:3*beadList+2]
 	support = '#include <math.h>'
 	code = """
-	int * molinds;
-	molinds = (int *) malloc(sizeof(int)*3*ats);
-	double com [3] = {0.0 0.0 0.0};
-	double orient [6] = {0.0 0.0 0.0 0.0 0.0 0.0};
-	double aromaPlane [9] = {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0};
-	double coma [9] = {0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0};
-	
-	double M,bx,by,bz,m;
-	int i,j;
-	int bead,beadIndx,beadIndy,beadIndz,end1x,end1y,end1z,end2x,end2y,end2z;
+	int * molInds;
+	molInds = (int *) malloc(sizeof(int)*3*ats);
+	double com [3];
+	com[0] = 0.0;
+	com[1] = 0.0;
+	com[2] = 0.0;
+
+
+	double M,bx,by,bz,m,m0,b0x,b0y,b0z,dbx,dby,dbz;
+	int bead,beadInd0x,beadInd0y,beadInd0z,beadIndx,beadIndy,beadIndz,end1x,end1y,end1z,end2x,end2y,end2z;
 	for (int i = 0; i < nmols; i++){
 		for (int k = 0; k < 3*ats; k++){
-			molInds[k] = k*3*ats;
+			molInds[k] = i*3*ats+k;
 		}
 		for (int k = 0; k < 3; k++){
 			com[k] = 0.0;
 		}
 		M = 0.0;
-		
+		beadInd0x = molInds[beadList[0]*3];
+		beadInd0y = molInds[beadList[0]*3+1];
+		beadInd0z = molInds[beadList[0]*3+2];
+		b0x = posList[beadInd0x];
+		b0y = posList[beadInd0y];
+		b0z = posList[beadInd0z];
 		for (int j = 0; j < NbeadList[0]; j++){
 			bead = beadList[j];
 			beadIndx = molInds[bead*3];
@@ -534,61 +548,121 @@ def aromaticDataC(posList,ats,beadList,beadMasses,endList):
 			bx = posList[beadIndx];
 			by = posList[beadIndy];
 			bz = posList[beadIndz];
+			dbx = bx - b0x;
+			dby = by - b0y;
+			dbz = bz - b0z;
+			dbx = dbx - double(boxLs[0])*round(dbx/double(boxLs[0]));
+			dby = dby - double(boxLs[1])*round(dby/double(boxLs[1]));
+			dbz = dbz - double(boxLs[2])*round(dbz/double(boxLs[2]));
 			m = beadMasses[j];
-			com[0] += m*bx;
-			com[1] += m*by;
-			com[2] += m*bz;
+			com[0] += m*dbx;
+			com[1] += m*dby;
+			com[2] += m*dbz;
 			M+=m;
 		}
-		com[0] = com[0]/M;
-		com[1] = com[1]/M;
-		com[2] = com[2]/M;
-		for (int is = 0; is < 3; is++){
-			
-			ma1 = aromMass[is];
-			ma2 = aromMass[is+1];
-			ma3 = aromMass[is+2];
-			arom1 = aromBeads[3*is];
-			arom2 = aromBeads[3*is+1];
-			arom3 = aromBeads[3*is+2];
-			arom1Indx = molInds[arom1*3];
-			arom1Indy = molInds[arom1*3+1];
-			arom1Indz = molInds[arom1*3+2];
-			a1x = posList[arom1Indx];
-			a1y = posList[arom1Indy];
-			a1z = posList[arom1Indz];
-			arom2Indx = molInds[arom2*3];
-			arom2Indy = molInds[arom2*3+1];
-			arom2Indz = molInds[arom2*3+2];
-			a2x = posList[arom2Indx];
-			a2y = posList[arom2Indy];
-			a2z = posList[arom2Indz];
-			arom3Indx = molInds[arom3*3];
-			arom3Indy = molInds[arom3*3+1];
-			arom3Indz = molInds[arom3*3+2];
-			a3x = posList[arom3Indx];
-			a3y = posList[arom3Indy];
-			a3z = posList[arom3Indz];
-			
-			coma[is] = (ma1*a1x+ma2*a2x+ma3*a3x)/(ma1+ma2+ma3);
-			coma[is+1] = (ma1*a1y+ma2*a2y+ma3*a3y)/(ma1+ma2+ma3);
-			coma[is+2] = (ma1*a1z+ma2*a2z+ma3*a3z)/(ma1+ma2+ma3);
-			
-			aromaPlane[is] = (a3y-a2y)*(a2z-a1z)-(a3z-a2z)*(a2y-a1y);
-			aromaPlane[is+1] = -(a3x-a2x)*(a2z-a1z)+(a3z-a2z)*(a2x-a1x);
-			aromaPlane[is+2] = (a3x-a2x)*(a2y-a1y)-(a3y-a2y)*(a2x-a1x);
-			
-		}
-		coms[i,0] = com[0];
-		coms[i,1] = com[1];
-		coms[i,2] = com[2];
-		orients[i,0] = orient[0];
-		orients[i,1] = orient[1];
-		orients[i,2] = orient[2];
+		com[0] = com[0]/M+b0x;
+		com[1] = com[1]/M+b0y;
+		com[2] = com[2]/M+b0z;
+		coms[3*i] = com[0];
+		coms[3*i+1] = com[1];
+		coms[3*i+2] = com[2];
 	}
+	free(molInds);
 	"""
-	weave.inline(code,['posList','ats','nmols','orients','beadList','beadMasses','coms'],support_code = support,libraries=['m'])
-	return (coms,orients,aromaPlanes)
+	weave.inline(code,['posList','ats','nmols','beadList','beadMasses','coms','boxLs'],support_code = support,libraries=['m'])
+	coms = np.reshape(coms,[nmols,3])
+	return coms
+
+def aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs):
+    N = int(len(posList)/3)
+    nmols = N/ats
+    orients = np.zeros(6*nmols)
+    aromaPlanes = np.zeros(9*nmols)
+    support = '#include <math.h>'
+    code = """
+    int * molInds;
+    molInds = (int *) malloc(sizeof(int)*3*ats);
+    double orient [6];
+    for (int i = 0; i < 6; i++){
+        orient[i] = 0.0;
+    }
+    
+    double comas [9];
+    int b0 [9];
+    int b1 [9];
+    int b2 [9];
+    double b0p [9];
+    double b1p [9];
+    double b2p [9];
+    double db1 [9];
+    double db2 [9];
+    double dc1 [9];
+    double dc2 [9];
+    double norm;
+    for (int i = 0; i < 9; i++){
+        b0[i] = 0;
+        b1[i] = 0;
+        b2[i] = 0;
+        b0p[i] = 0.0;
+        b1p[i] = 0.0;
+        b2p[i] = 0.0;
+        db1[i] = 0.0;
+        db2[i] = 0.0;
+        dc1[i] = 0.0;
+        dc2[i] = 0.0;
+        comas[i] = 0.0;
+    }
+    
+    
+    for (int i = 0; i < nmols; i++){
+        for (int k = 0; k < 3*ats; k++){
+            molInds[k] = i*3*int(ats)+k;
+        }
+        for (int c = 0; c < 3; c++){
+        for (int j = 0; j < 3; j++){
+            b0[j+3*c] = molInds[int(aromBeads[0+3*c])*3+j];
+            b1[j+3*c] = molInds[int(aromBeads[1+3*c])*3+j];
+            b2[j+3*c] = molInds[int(aromBeads[2+3*c])*3+j];
+            b0p[j+3*c] = posList[b0[j+3*c]];
+            b1p[j+3*c] = posList[b1[j+3*c]];
+            b2p[j+3*c] = posList[b2[j+3*c]];
+            db1[j+3*c] = b1p[j+3*c]-b0p[j+3*c];
+            db2[j+3*c] = b2p[j+3*c]-b0p[j+3*c];
+            db1[j+3*c] = db1[j+3*c] - double(boxLs[j])*round(db1[j+3*c]/double(boxLs[j]));
+            db2[j+3*c] = db2[j+3*c] - double(boxLs[j])*round(db2[j+3*c]/double(boxLs[j]));
+            dc1[j+3*c] = b2p[j+3*c] - b1p[j+3*c];
+            dc2[j+3*c] = b1p[j+3*c] - b0p[j+3*c];
+            dc1[j+3*c] = dc1[j+3*c] - double(boxLs[j])*round(dc1[j+3*c]/double(boxLs[j]));
+            dc2[j+3*c] = dc2[j+3*c] - double(boxLs[j])*round(dc2[j+3*c]/double(boxLs[j]));
+            comas[j+3*c] = (aromMass[1+3*c]*db1[j+3*c]+aromMass[2+3*c]*db2[j+3*c])/(aromMass[0+3*c]+aromMass[1+3*c]+aromMass[2+3*c])+b0p[j+3*c];
+            
+        }
+            aromaPlanes[3*c] = dc1[3*c+1]*dc2[3*c+2] - dc1[3*c+2]*dc2[3*c+1];
+            aromaPlanes[3*c+1] = -dc1[3*c]*dc2[3*c+2] + dc1[3*c+2]*dc2[3*c];
+            aromaPlanes[3*c+2] = dc1[3*c]*dc2[3*c+1] - dc1[3*c+1]*dc2[3*c];
+            norm = aromaPlanes[3*c]*aromaPlanes[3*c]+aromaPlanes[3*c+1]*aromaPlanes[3*c+1]+aromaPlanes[3*c+2]*aromaPlanes[3*c+2];
+            norm = sqrt(norm);
+            aromaPlanes[3*c] = aromaPlanes[3*c]/norm;
+            aromaPlanes[3*c+1] = aromaPlanes[3*c+1]/norm;
+            aromaPlanes[3*c+2] = aromaPlanes[3*c+2]/norm;
+        }
+        orient[0] = comas[6] - comas[3] - double(boxLs[0])*round((comas[6]-comas[3])/double(boxLs[0]));
+        orient[1] = comas[7] - comas[4] - double(boxLs[1])*round((comas[7]-comas[4])/double(boxLs[1]));
+        orient[2] = comas[8] - comas[5] - double(boxLs[2])*round((comas[8]-comas[5])/double(boxLs[2]));
+        orient[3] = comas[3] - comas[0] - double(boxLs[0])*round((comas[3]-comas[0])/double(boxLs[0]));
+        orient[4] = comas[4] - comas[1] - double(boxLs[1])*round((comas[4]-comas[1])/double(boxLs[1]));
+        orient[5] = comas[5] - comas[2] - double(boxLs[2])*round((comas[5]-comas[2])/double(boxLs[2]));
+        for (int o = 0; o < 6; o++){
+            orients[6*i+o] = orient[o];
+        }
+
+    }
+
+    """
+    weave.inline(code,['posList','ats','nmols','aromBeads','aromMass','orients','boxLs','aromaPlanes'],support_code = support,libraries=['m'])
+    orients = np.reshape(orients,[nmols,6])
+    aromaPlanes = np.reshape(aromaPlanes,[nmols,9])
+    return (orients,aromaPlanes)
 
 def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
@@ -651,17 +725,19 @@ def betaCharacter(posList,ats,cutoff,bbs,bblist):
         }
 
 	}
-	
+	for (int k = 0; k < (N/ats)*bbs; k++){
+        free(aMat[k]);
+    	}
 	free(aMat);
 	"""
 	weave.inline(code,['posList','N','ats','cutoff2','betaBonds','bbs','bblist'],support_code = support,libraries=['m'])
 	#print "len(betabonds) is ",len(betaBonds)
     	return betaBonds
 
-def betaClust(t,xtc,tpr,outgro,cutoff,ats,bbs,bblist,rm=True):
+def betaClust(t,grobase,cutoff,ats,bbs,bblist,ind,rm=True):
 	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
 	#like a beta-ladder kind of thing for each cluster
-	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	(peps,box_length) = getPosB2(ind,grobase)
 	#print box_length
 	if rm:
 		os.system('rm '+outgro)
