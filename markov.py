@@ -23,7 +23,8 @@ def readGro(fName):
 
 #Takes a 1d list of positions, a filename, and box vectors and writes out a gro file
 #molStructure is a list defining the name,type, and number of each atom (assume all molecules are the same)
-def writeGro(fName,poslist,boxV,molStructure):
+def writeGro(fName,poslist,boxV,molStructure=["1PAS","BB","1PAS","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAS","BB","15PAS","SC1"]
+):
 	f = open(fName,'w')
 	atomno = len(molStructure)/2
 	molno = len(poslist)/(3*atomno)
@@ -451,8 +452,6 @@ def aromaCOM(arom,posList,aromMass,molInds,boxL):
 	return coma
 
 def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,aromMass,rm=True):
-	#return a set of counts (normalized by the total number) of "beta-bonds" or appearing contiguous segments of bonds between atoms
-	#like a beta-ladder kind of thing for each cluster
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
 	#print box_length
 	if rm:
@@ -460,7 +459,7 @@ def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,arom
 	pots = range(len(peps)/3/ats)
 	inds = np.zeros(len(peps)/3/ats)
 	ind = 1
-	achars = np.empty((0,20),float)
+	achars = np.empty((0,29),float)
 	cNum = 0
 	while len(pots) > 0:
 		
@@ -475,35 +474,24 @@ def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,arom
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
-		(coms,orients,aromaPlanes) = aromaticDataC(pepList,ats,beadList,beadMasses,aromBeads,aromMass,box_length)
-		#print("found betabonds: ",betabonds)
+		(coms,orients,aromaPlanes,aromaCOMs) = aromaticDataC(pepList,ats,beadList,beadMasses,aromBeads,aromMass,box_length)
+	
 		cNums = cNum*np.ones([len(coms),1])
 		cSizes = len(clusts)*np.ones([len(coms),1])
-		#print cNums
-		adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes),axis=1)
-		#print np.size(adata)
-		#print np.size(achars[0])
-		#print achars
-		#print adata
-		#print achars
+
+		
+		adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes,aromaCOMs),axis=1)
+
 		achars = np.concatenate((achars,adata),axis=0)
-		#print achars
-		#print achars
-		#print(betachars)
+
 		cNum+=1
-		#print cNum
-		#print np.size(achars[0])
-		#print np.size(achars[1])
-		#print np.shape(achars)
-	#print(len(betachars))
-	#return cluster #, cluster size, coms, orients, aromaPlanes
 	
 	return achars
 
 def aromaticDataC(posList,ats,beadList,beadMasses,aromBeads,aromMass,boxLs):
 	coms = aromaticCOMC(posList,ats,beadList,beadMasses,boxLs)
-	(orients,aromaPlanes) = aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs)
-	return (coms,orients,aromaPlanes)
+	(orients,aromaPlanes,aromaCOMs) = aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs)
+	return (coms,orients,aromaPlanes,aromaCOMs)
 
 def aromaticCOMC(posList,ats,beadList,beadMasses,boxLs):
 	#characterize the COM location and orientation of the aromatic rings in the backbone (beads 10, 11, 12, 13, 14, 15, 16, 17, 21, 20, 19 for DFAG)
@@ -578,6 +566,7 @@ def aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs):
     nmols = N/ats
     orients = np.zeros(6*nmols)
     aromaPlanes = np.zeros(9*nmols)
+    aromaCOMs = np.zeros(9*nmols)
     support = '#include <math.h>'
     code = """
     int * molInds;
@@ -635,23 +624,24 @@ def aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs):
             dc1[j+3*c] = dc1[j+3*c] - double(boxLs[j])*round(dc1[j+3*c]/double(boxLs[j]));
             dc2[j+3*c] = dc2[j+3*c] - double(boxLs[j])*round(dc2[j+3*c]/double(boxLs[j]));
             comas[j+3*c] = (aromMass[1+3*c]*db1[j+3*c]+aromMass[2+3*c]*db2[j+3*c])/(aromMass[0+3*c]+aromMass[1+3*c]+aromMass[2+3*c])+b0p[j+3*c];
+	    aromaCOMs[9*i+j+3*c] = comas[j+3*c];
             
         }
-            aromaPlanes[3*c] = dc1[3*c+1]*dc2[3*c+2] - dc1[3*c+2]*dc2[3*c+1];
-            aromaPlanes[3*c+1] = -dc1[3*c]*dc2[3*c+2] + dc1[3*c+2]*dc2[3*c];
-            aromaPlanes[3*c+2] = dc1[3*c]*dc2[3*c+1] - dc1[3*c+1]*dc2[3*c];
-            norm = aromaPlanes[3*c]*aromaPlanes[3*c]+aromaPlanes[3*c+1]*aromaPlanes[3*c+1]+aromaPlanes[3*c+2]*aromaPlanes[3*c+2];
+            aromaPlanes[9*i+3*c] = dc1[3*c+1]*dc2[3*c+2] - dc1[3*c+2]*dc2[3*c+1];
+            aromaPlanes[9*i+3*c+1] = -dc1[3*c]*dc2[3*c+2] + dc1[3*c+2]*dc2[3*c];
+            aromaPlanes[9*i+3*c+2] = dc1[3*c]*dc2[3*c+1] - dc1[3*c+1]*dc2[3*c];
+            norm = aromaPlanes[9*i+3*c]*aromaPlanes[9*i+3*c]+aromaPlanes[9*i+3*c+1]*aromaPlanes[9*i+3*c+1]+aromaPlanes[9*i+3*c+2]*aromaPlanes[9*i+3*c+2];
             norm = sqrt(norm);
-            aromaPlanes[3*c] = aromaPlanes[3*c]/norm;
-            aromaPlanes[3*c+1] = aromaPlanes[3*c+1]/norm;
-            aromaPlanes[3*c+2] = aromaPlanes[3*c+2]/norm;
+            aromaPlanes[9*i+3*c] = aromaPlanes[9*i+3*c]/norm;
+            aromaPlanes[9*i+3*c+1] = aromaPlanes[9*i+3*c+1]/norm;
+            aromaPlanes[9*i+3*c+2] = aromaPlanes[9*i+3*c+2]/norm;
         }
-        orient[0] = comas[6] - comas[3] - double(boxLs[0])*round((comas[6]-comas[3])/double(boxLs[0]));
-        orient[1] = comas[7] - comas[4] - double(boxLs[1])*round((comas[7]-comas[4])/double(boxLs[1]));
-        orient[2] = comas[8] - comas[5] - double(boxLs[2])*round((comas[8]-comas[5])/double(boxLs[2]));
-        orient[3] = comas[3] - comas[0] - double(boxLs[0])*round((comas[3]-comas[0])/double(boxLs[0]));
-        orient[4] = comas[4] - comas[1] - double(boxLs[1])*round((comas[4]-comas[1])/double(boxLs[1]));
-        orient[5] = comas[5] - comas[2] - double(boxLs[2])*round((comas[5]-comas[2])/double(boxLs[2]));
+        orient[3] = comas[6] - comas[3] - double(boxLs[0])*round((comas[6]-comas[3])/double(boxLs[0]));
+        orient[4] = comas[7] - comas[4] - double(boxLs[1])*round((comas[7]-comas[4])/double(boxLs[1]));
+        orient[5] = comas[8] - comas[5] - double(boxLs[2])*round((comas[8]-comas[5])/double(boxLs[2]));
+        orient[0] = comas[3] - comas[0] - double(boxLs[0])*round((comas[3]-comas[0])/double(boxLs[0]));
+        orient[1] = comas[4] - comas[1] - double(boxLs[1])*round((comas[4]-comas[1])/double(boxLs[1]));
+        orient[2] = comas[5] - comas[2] - double(boxLs[2])*round((comas[5]-comas[2])/double(boxLs[2]));
         for (int o = 0; o < 6; o++){
             orients[6*i+o] = orient[o];
         }
@@ -659,10 +649,11 @@ def aromaticPlaneC(posList,ats,aromBeads,aromMass,boxLs):
     }
 
     """
-    weave.inline(code,['posList','ats','nmols','aromBeads','aromMass','orients','boxLs','aromaPlanes'],support_code = support,libraries=['m'])
+    weave.inline(code,['posList','ats','nmols','aromBeads','aromMass','orients','boxLs','aromaPlanes','aromaCOMs'],support_code = support,libraries=['m'])
     orients = np.reshape(orients,[nmols,6])
     aromaPlanes = np.reshape(aromaPlanes,[nmols,9])
-    return (orients,aromaPlanes)
+    aromaCOMs = np.reshape(aromaCOMs,[nmols,9])
+    return (orients,aromaPlanes,aromaCOMs)
 
 def betaCharacter(posList,ats,cutoff,bbs,bblist):
 	#characterize the "beta-sheetness" of a given cluster based on how many consecutive beads have bonds
@@ -768,6 +759,32 @@ def betaClust(t,grobase,cutoff,ats,bbs,bblist,ind,rm=True):
 	return (ms,betachars)
 		
 
+def fixPBC(peps,box,ats,cutoff):
+	#return positions fixed across PBCs for calculation of structural metrics like Rh and Rg
+	#create the list of fixed positions
+	fixedXYZ = peps.copy()
+	potInds = range(1,len(peps)/(ats*3))
+	#the first ats*3 coordinates are the coordinates of the first atom
+	fixedXYZ[0:3*ats] = fixCoords(peps[0:3*ats],peps[0:3],box)
+	correctInds = [0]
+	while len(correctInds) > 0:
+		atom = correctInds.pop()
+		neighs = getNeigh(atom,cutoff,peps,potInds,ats)
+		for n in neighs:
+			potInds.remove(n)
+			correctInds.append(n)
+			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(peps[3*ats*n:3*ats*(n+1)],peps[3*atom*ats:3*atom*ats+3],box)
+	return fixedXYZ
+
+def fixCoords(pos,posinit,box):
+	#fix all coords based on the initial coordinate and the periodic boundary conditions
+	for i in range(len(pos)/3):
+		dr = pos[3*i:3*i+3] - posinit
+		dr = dr - box*np.round(dr/box)
+		pos[3*i:3*i+3] = dr + posinit
+	return pos
+	
+
 def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	#return the index of which clusters each peptide is in
 	#also the eigenvectors and eigenvalues of the gyration tensor of each cluster
@@ -799,6 +816,8 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 			
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
+		pepList = fixPBC(pepList,box_length,ats,cutoff)
+		#writeGro('mol_'+str(ind)+'.gro',pepList,box_length)
 		gyrationTensor = gyrTens(pepList,box_length)
 		eigstuff = np.linalg.eig(gyrationTensor)
 		ind+=1
@@ -821,6 +840,7 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		Rgs = np.append(Rgs,eigMorph[3])
 		ms = np.append(ms,mass)
 		#ms = np.append(ms,np.array([mass,eigMorph[3],Rh]))
+	
 	#end = time.clock()
 	#t = end - start
 	#print "time: ", t
@@ -852,7 +872,6 @@ def gyrTensxy(posList,x,y,boxlx,boxly):
             #print U,V
             gxy = gxy + V*U
     gxy = gxy/(2*N**2)
-    return gxy
 
 def hydroRad(posList):
 	#given a list of atom positions for a cluster, find the average theoretical hydrodynamic radius
