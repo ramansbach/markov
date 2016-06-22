@@ -206,7 +206,8 @@ def clustInds(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	while len(pots) > 0:
 		init = pots[0]
 		pots.remove(init)
-		clusts = getClustPBC(init,cutoff,peps,pots,ats,False) + [init]
+		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+
 		for clust in clusts:
 			inds[clust] = ind
 		ind+=1
