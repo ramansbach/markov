@@ -1,10 +1,24 @@
 import numpy as np, imp,os
-mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov/markov.py')
+try:
+	mk = imp.load_source('mk','/home/mansbac2/coarsegraining/code/markov.py')
+except IOError:
+	mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov/markov.py')
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.rc('text',usetex=False)
 import subprocess,timeit
+#check the number of lines in a file
+def checklines(fname):
+	f = open(fname,"r")
+	nl = 0
+	while True:
+		line = f.readline()
+		if line=="":
+			break
+		nl+=1
+	return nl
+
 #use visualization to check
 #data: cluster size + charged/uncharged molecules + COM + distance of ends from COM (distribution of cluster end distance from COM?)
 #first get 
@@ -14,6 +28,7 @@ import subprocess,timeit
 #Takes a .gro file and returns a 1d list of positions, box lengths, and a 1d list of whether the molecule does
  #or does not contain a particular residue (used to tell if it's charged or uncharged)
 #resInfo is a tuple ('resname',pos), where position is the index within the molecule of the residue
+
 def readGroQ(fName,resInfo,ats):
         with open(fName, 'r') as myF:
                 myLns = myF.read().splitlines()
@@ -44,7 +59,8 @@ def getPosQ(t,trj,tpr,outGro,resInfo,ats):
 #data: cluster size + charged/uncharged molecules + COM + distance of ends from COM (distribution of cluster end distance from COM?)
 #resInfo is ('PAQ',0) for DFAG,masses is a list of the beads in .gro file order mass in amu (either 72 or 46)
 #endInds are the indices in the .gro file containing the 4 charged beads (in DFAG, that is [0,1,27,28]
-def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,elongRat=8,elongMols=400,rm=True):
+#outf is a file open for writing passed into the function
+def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=False,elongRat=8,elongMols=400,rm=True):
     (peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats)
     if rm:
             os.system('rm '+outgro)
@@ -96,33 +112,59 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,elongRat
         gTens = mk.gyrTens(pepList,box_length)
         
         gStuff = np.linalg.eig(gTens)
+        indmax = np.argmax(gStuff[0])
         gVals = gStuff[0]
+        gVals = np.sort(gVals)
         gMoms = gStuff[1]
-        rat = max(gVals)/min(gVals)
+        gPrinc = gMoms[:,indmax]
+        rat = gVals[2]/gVals[0]
     
-        if rat > elongRat and nMs > elongMols:
-            #assume that we have a sinuous kind of molecule which requires special treatment
-            h = elongHist(gVals,gMoms,dEs,bins)
+        if raboutz:
+            #find the average perpendicular distance from the z' axis
+            #where the z' axis is the principal moment of the gyration tensor
+            (rq,hq) = radialHistZ(dEq,bins,gPrinc)
+            (rnq,hnq) = radialHistZ(dEnq,bins,gPrinc)
         else:
             (rq,hq) = radialHist(dEq,bins)
             (rnq,hnq) = radialHist(dEnq,bins)
+	nC = len(clust)
+	nQ = np.sum(qbool[clust])
+	outf.write("\t{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}".format(t,nC,nQ,float(nQ)/(float(nC)),gVals[0],gVals[1],gVals[2],rat,rq,rnq))
+	for w in range(bins):
+		outf.write("\t{}".format(hq[w]))
+	for w in range(bins):
+		outf.write("\t{}".format(hnq[w]))
+	outf.write("\n")
         hQs[len(clust),:] += hq
         rQs[len(clust)] += rq #track mean distance from COM
         rQsnorm[len(clust)]+=1 #normalization for mean (let's not do standard deviation yet)
         rnQs[len(clust)]+= rnq
         rnQsnorm[len(clust)]+=1
         hnQs[len(clust),:] += hnq
-        #fig3 = plt.figure()
-        #ax3 = fig3.add_subplot(111)
-        #ax3.scatter(dEs[qinds==0,0],dEs[qinds==0,1],c='b',marker='o')
-        #ax3.scatter(dEs[qinds==1,0],dEs[qinds==1,1],c='r',marker='o')
-        #ax3.scatter(0,0,0,c='g',marker='^')
+        '''
+        Error Checking Visualization
+        '''
+        fig3 = plt.figure()
+        dEqr = np.reshape(dEq,[len(dEq)/3,3])
+        dEnqr = np.reshape(dEnq,[len(dEnq)/3,3])
+        ax3 = fig3.add_subplot(111,projection='3d')
+        ax3.scatter(dEnqr[:,0],dEnqr[:,1],dEnqr[:,2],c='b',marker='o')
+        ax3.scatter(dEqr[:,0],dEqr[:,1],dEqr[:,2],c='r',marker='o')
+        ax3.scatter(0,0,0,c='g',marker='^')
+        ax3.quiver(0,0,0,gPrinc[0],gPrinc[1],gPrinc[2])
+        print "rq is {}".format(rq)
+        print "rnq is {}".format(rnq)
+        fig = plt.figure()
+        plt.subplot(211)
+        plt.bar(range(bins),hq/float(np.sum(hq)),color='r')
+        plt.subplot(212)
+        plt.bar(range(bins),hnq/float(np.sum(hnq)),color='b')
         #ax.set_xlabel('X Label')
         #ax.set_ylabel('Y Label')
         #ax.set_zlabel('Z Label')
         plt.show()
-        #if ind > 4:
-        #    pots = []
+        if ind > 1:
+            pots = []
         
         ind+=1
         '''
@@ -134,6 +176,30 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,elongRat
 
 def elongHist(gVals,gMoms,pepList,bins):
     print("under construction")
+    
+def radialHistZ(beadDists,bins,gPrinc):
+    #the same as radialHist, except it doesn't compute the distance from the com
+    #instead, it computes the perpendicular distance from the principal
+    #moment of the gyration tensor
+    #com is at (0,0,0) by construction
+    h = np.zeros([1,bins])
+    rzs = np.zeros([len(beadDists)/3])
+    zx = gPrinc[0]
+    zy = gPrinc[1]
+    zz = gPrinc[2]
+    rzmax = 0
+    for i in range(len(beadDists)/3):
+        vx = beadDists[3*i]
+        vy = beadDists[3*i+1]
+        vz = beadDists[3*i+2]
+        dot = vx*zx+vy*zy+vz*zz
+        r = np.sqrt((vx-dot*zx)*(vx-dot*zx)+(vy-dot*zy)*(vy-dot*zy)+(vz-dot*zz)*(vz-dot*zz))
+        rzs[i] = r
+        if r > rzmax:
+            rmax = r
+    (h,bE) = np.histogram(rzs,bins=bins,range=(0.0,rmax))
+    
+    return (np.mean(rzs),h)
 
 def radialHist(beadDists,bins):
     #construct a histogram of the radial distances from the coms of the beads
@@ -207,10 +273,19 @@ def endDist(com,pepList,ats,endInds):
     return dEs
 
 if __name__ == "__main__":
+    '''
+    ==================
+    ===Sanity Check===
+    ==================
+    testDists = np.array([0.0,7.0/(4*np.sqrt(2)),9.0/(4*np.sqrt(2)),0.0,9.0/(4*np.sqrt(2)),7.0/(4*np.sqrt(2))])
+    testV = np.array([0.0,1.0/np.sqrt(2),1.0/np.sqrt(2)])
+    print radialHistZ(testDists,10,testV)    
+    '''    
     xtc = 'md_noW.xtc'
     tpr = 'md_dummy.tpr'
     t = 200000
     outgro = 'temp.gro'
+    outf = open('test.txt','w')
     masses = 46*np.ones([29,1])
     linds = [0,1,2,6,7,21,22,27,28]
     masses[linds] = 72
@@ -219,7 +294,7 @@ if __name__ == "__main__":
     ats=29
     endInds = [0,27]
     bins=10
-    (rqs,rqsnorm,rnqs,rnqsnorm,hqs,hnqs) = clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins)
+    (rqs,rqsnorm,rnqs,rnqsnorm,hqs,hnqs) = clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=True)
     
     '''
     ===============
