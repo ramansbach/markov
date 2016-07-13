@@ -766,15 +766,17 @@ def fixPBC(peps,box,ats,cutoff):
 	fixedXYZ = peps.copy()
 	potInds = range(1,len(peps)/(ats*3))
 	#the first ats*3 coordinates are the coordinates of the first atom
-	fixedXYZ[0:3*ats] = fixCoords(peps[0:3*ats].copy(),peps[0:3].copy(),box)
+	fixedXYZ[0:3*ats] = fixCoords(fixedXYZ[0:3*ats].copy(),fixedXYZ[0:3].copy(),box)
 	correctInds = [0]
 	while len(correctInds) > 0:
 		atom = correctInds.pop()
 		neighs = getNeigh(atom,cutoff,peps,potInds,ats)
 		for n in neighs:
+                #if n == 2:
+                 #   print ''
 			potInds.remove(n)
 			correctInds.append(n)
-			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(peps[3*ats*n:3*ats*(n+1)],peps[3*atom*ats:3*atom*ats+3],box)
+			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(peps[3*ats*n:3*ats*(n+1)].copy(),peps[3*atom*ats:3*atom*ats+3].copy(),box)
 	return fixedXYZ
 
 def fixCoords(pos,posinit,box):
