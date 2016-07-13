@@ -766,7 +766,7 @@ def fixPBC(peps,box,ats,cutoff):
 	fixedXYZ = peps.copy()
 	potInds = range(1,len(peps)/(ats*3))
 	#the first ats*3 coordinates are the coordinates of the first atom
-	fixedXYZ[0:3*ats] = fixCoords(peps[0:3*ats],peps[0:3],box)
+	fixedXYZ[0:3*ats] = fixCoords(peps[0:3*ats].copy(),peps[0:3].copy(),box)
 	correctInds = [0]
 	while len(correctInds) > 0:
 		atom = correctInds.pop()
@@ -907,9 +907,9 @@ def gyrTensxyC(posList,x,y,boxlx,boxly):
     for (R = 0; R<NposList[0]/3;R++){
         for (S = 0; S<NposList[0]/3;S++){
             V = posList[3*R+x] - posList[3*S+x];
-            V = V - boxlx*round(V/boxlx);
+            V = V - double(boxlx)*round(double(V)/double(boxlx));
             U = posList[3*R+y] - posList[3*S+y];
-            U = U - boxly*round(U/boxly);
+            U = U - double(boxly)*round(double(U)/double(boxly));
             gxy = gxy+U*V;
         }
     }
