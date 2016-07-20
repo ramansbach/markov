@@ -52,17 +52,34 @@ def readGro(fName):
 
 #Takes a 1d list of positions, a filename, and box vectors and writes out a gro file
 #molStructure is a list defining the name,type, and number of each atom (assume all molecules are the same)
-def writeGro(fName,poslist,boxV,qbools,molStructureQ=["1PAQ","BB","1PAQ","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAQ","BB","15PAQ","SC1"],molStructure=["1PAS","BB","1PAS","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAS","BB","15PAS","SC1"]
+def writeGro(snapno,poslist,boxV,qbools,molStructureQ=["1PAQ","BB","1PAQ","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAQ","BB","15PAQ","SC1"],molStructure=["1PAS","BB","1PAS","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAS","BB","15PAS","SC1"]
 ):
-	f = open(fName,'w')
 	atomno = len(molStructure)/2
-	molno = len(poslist)/(3*atomno)
+	molno = len(poslist)/(3*atomno) 
+	qno = int(np.sum(qbools)) 
+	nqno = int(molno-qno)
+	fName = 'Q'+str(qno)+'NQ'+str(nqno)+'mer_'+str(snapno)+'.gro' 
+	tName = 'Q'+str(qno)+'NQ'+str(nqno)+'mer_'+str(snapno)+'.top'
+	t = open(tName,'w')
+ 	t.write("#include \"martini.itp\"\n")
+ 	t.write("#include \"Protein.itp\"\n")
+ 	t.write("#include \"Protein_NP.itp\"\n")  
+ 	t.write("[ system ]\n\n")
+ 	t.write(";name\n")
+ 	t.write("Martini system for k-mer library\n\n")
+   	t.write("[ molecules ]\n\n")
+     	t.write(";name\tnumber\n")
+     	t.write("Protein\t{}\n".format(nqno))
+ 	t.write("ProteinQ\t{}\n".format(qno))      
+	t.close()
+	f = open(fName,'w')
 	f.write("This is a k-mer library file\n")
 	f.write(str(len(poslist)/3)+"\n")
 	#print atomno
 	#print molno
 	#print np.size(poslist)
 	atomind = 1
+     
 	for m in range(molno):
 		for a in range(atomno):
 			
@@ -305,9 +322,9 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 			clustinds[mer]+=1
 		else:
 			clustinds[mer] = 1
-		fName = str(mer)+"mer_"+str(clustinds[mer])+".gro"
 		
-		writeGro(fName,pepList,box_length,qboolc)
+		
+		writeGro(clustinds[mer],pepList,box_length,qboolc)
 		
 def clustMakeup(distrib,nmols):
 	#given a distribution of cluster sizes, output a list consisting of numbers of k-mers of up to nmols that fits the distribution reasonably well but also the correct number of molecules
