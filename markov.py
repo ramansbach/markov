@@ -1,5 +1,5 @@
 import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
-import imp
+
 from scipy import weave
 from operator import sub, div
 #params = {'axes.titlesize':70,
@@ -292,15 +292,12 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 		#clusts is a list of peptides that are found in the cluster
 		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
 		pepList = np.zeros(len(clusts)*ats*3)
-  		if len(clusts) == 53:
-     			print 2
 		curr = 0
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
 		pepList = fixPBC(pepList,box_length,ats,cutoff)
 		mer = len(clusts)
-
 		if mer in clustinds:
 			clustinds[mer]+=1
 		else:
@@ -801,25 +798,14 @@ def fixPBC(peps,box,ats,cutoff):
 	#create the list of fixed positions
 	fixedXYZ = peps.copy()
 	potInds = range(1,len(peps)/(ats*3))
-     	#print potInds
 	#the first ats*3 coordinates are the coordinates of the first atom
 	fixedXYZ[0:3*ats] = fixCoords(fixedXYZ[0:3*ats].copy(),fixedXYZ[0:3].copy(),box)
 	correctInds = [0]
- 	neighs = []
 	while len(correctInds) > 0:
-
-  		#for k in neighs:
-		#	for s in range(3*ats*k,3*ats*(k+1)):
- 		#		#if fixedXYZ[s] > 20:
-		#		#	print fixedXYZ[s]  
-		atom = correctInds.pop()       
-		#if peps[3*atom*ats+2] > 20:
-		#	print ''
+		atom = correctInds.pop()
 		neighs = getNeigh(atom,cutoff,peps,potInds,ats)
-
 		for n in neighs:
-		#	if n == 31:
-		#		print ''
+
 			potInds.remove(n)
 			correctInds.append(n)
 			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(fixedXYZ[3*ats*n:3*ats*(n+1)].copy(),fixedXYZ[3*atom*ats:3*atom*ats+3].copy(),box)
