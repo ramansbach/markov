@@ -865,6 +865,11 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		eigMorph[4] = 1.5*eigMorph[2]-0.5*eigMorph[3]
 		
 		eigvals = np.append(eigvals,eigMorph)
+		eigOrder = np.argsort(eigstuff[0])
+		eigvec = eigstuff[1]
+		eigvect = np.append(eigvec[:,eigOrder[2]],eigvec[:,eigOrder[1]])
+		eigvect = np.append(eigvect,eigvec[:,eigOrder[0]])
+		eigvecs = np.append(eigvecs,eigvect)
 		#eigvecs = np.append(eigvecs,eigstuff[1])
 		Rh = hydroRad(pepList)
 		Rhs = np.append(Rhs,Rh)
@@ -907,6 +912,7 @@ def gyrTensxy(posList,x,y,boxlx,boxly):
             #print U,V
             gxy = gxy + V*U
     gxy = gxy/(2*N**2)
+    return gxy
 
 def hydroRad(posList):
 	#given a list of atom positions for a cluster, find the average theoretical hydrodynamic radius

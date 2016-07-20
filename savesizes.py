@@ -1,14 +1,15 @@
 #Takes cluster sizes from a trajectory and saves them as a .txt file
-import markov as mk
+import imp
+mk = imp.load_source('mk','/home/mansbac2/coarsegraining/code/markov/markov.py')
 
 t0=0 #Initial time of interest in ps
-tf=50000 #Final time of interest in ps
-dt = 10 #Minimum time spacing between .xtc windows in ps (nstxtcout*dt)
-xtc = 'sd1_50ns.xtc' #.xtc file name
-tpr = 'sd10_noc.tpr' #.tpr file name
+tf=TT #Final time of interest in ps
+dt = 50 #Minimum time spacing between .xtc windows in ps (nstxtcout*dt)
+xtc = 'md_noW.xtc' #.xtc file name
+tpr = 'md_dummy.tpr' #.tpr file name
 cutoff=.5 #minimum distance between any two atoms for system to be considered a cluster
-ats=146 #atoms per molecule (for parsing the .gro file into separate molecules; all atoms in the gro file need to be part of molecules of the same size for cluster analysis. Currently working on fixing this.)
-outputFileName = 'longrun1_sizes.txt'
+ats=29 #atoms per molecule (for parsing the .gro file into separate molecules; all atoms in the gro file need to be part of molecules of the same size for cluster analysis. Currently working on fixing this.)
+outputFileName = 'mdrun_sizes.dat'
 
 #---------------------------------------------------------#
 
