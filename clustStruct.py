@@ -49,21 +49,99 @@ def readGroQ(fName,resInfo,ats):
                 #print(i/ats)
         return (np.array([[float(myLns[i][20:].split()[0]), float(myLns[i][20:].split()[1]), float(myLns[i][20:].split()[2])] for i in range(2, len(myLns)-1)]).flatten(),np.array([boxL1,boxL2,boxL3]),resBool)
 
-def getPosQ(t,trj,tpr,outGro,resInfo,ats):
-        os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+def getPosQ(t,trj,tpr,outGro,resInfo,ats,writeGro=True):
+        if writeGro:
+            os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
         #subprocess.check_output([])        
         return readGroQ(outGro,resInfo,ats)
 
+#function that takes a 1d list of peptide locations, the number of atoms in the
+#peptide, and list of 1s and 0s where 1 is charged and 0 is uncharged, corresponding
+#to molecules that are charged and uncharged, and endInds gives the locations
+#of the termini in the molecule
+def endToEnd(pepList,ats,endInds,qbool):
+    molno = len(pepList)/(3*ats)
+    qnum = np.sum(qbool)
+    nqnum = len(qbool)-qnum
+    deeQ = np.zeros(qnum)
+    deeNQ = np.zeros(nqnum)
+    indq = 0
+    indnq = 0
+    for i in range(molno):
+    
+        ix1 = 3*ats*i+3*endInds[0]
+        iy1 = ix1+1
+        iz1 = iy1+1
+        x1 = pepList[ix1]
+        y1 = pepList[iy1]
+        z1 = pepList[iz1]
+        
+        ix2 = 3*ats*i+3*endInds[1]
+        iy2 = ix2+1
+        iz2 = iy2+1
+        x2 = pepList[ix2]
+        y2 = pepList[iy2]
+        z2 = pepList[iz2]
+        
+        dee = np.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1)+(z2-z1)*(z2-z1))
+        if dee > 6:
+            print dee
+        if qbool[i]:
+            deeQ[indq] = dee
+            indq+=1
+        else:
+            deeNQ[indnq] = dee
+            indnq+=1
+            
+            
+    return (deeQ,deeNQ)
 
+#gets all the end to end distances of the monomers in a cluster (simply the distance between termini beads)
+#write out t clustSize end to end dist for each monomer, then each monomer is tagged with cluster size
+#and time and also write out different file for Q and NQ molecules
+def endToEndMono(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,outfq,outfnq):
+    (peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats,writeGro=True)
+    os.system('rm '+outgro)
+    pots = range(len(peps)/3/ats)
+    inds = np.zeros(len(peps)/3/ats)
+    ind = 1
+    while len(pots) > 0:
+        init = pots[0]
+        pots.remove(init)
+        clust = mk.getClust(init,cutoff,peps,pots,ats,False)+[init]
+        pepList = np.zeros(len(clust)*ats*3)
+        curr = 0
+        #clust is a list of monomers that are found in the cluster
+        #each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+        for c in clust:
+            inds[c] = ind
+            pepList[curr*ats*3:(curr+1)*ats*3]=peps[c*ats*3:(c+1)*ats*3] #1d list of positions in cluster
+            curr+=1
+        if ind == 8:
+            print curr
+            
+        pepList = mk.fixPBC(pepList,box_length,ats,cutoff)
+        (deeQ,deeNQ) = endToEnd(pepList,ats,endInds,qbool[clust])
+        for i in range(len(deeQ)):
+            if deeQ[i] > 6:
+                print deeQ
+            
+            outfq.write('{0} {1} {2}\n'.format(t,len(clust),deeQ[i]))
+        for i in range(len(deeNQ)):
+            if deeNQ[i] > 6:
+                print deeNQ
+            outfnq.write('{0} {1} {2}\n'.format(t,len(clust),deeNQ[i]))
+        ind+=1
+    return
+        
 #returns the following data
 #data: cluster size + charged/uncharged molecules + COM + distance of ends from COM (distribution of cluster end distance from COM?)
 #resInfo is ('PAQ',0) for DFAG,masses is a list of the beads in .gro file order mass in amu (either 72 or 46)
 #endInds are the indices in the .gro file containing the 4 charged beads (in DFAG, that is [0,1,27,28]
 #outf is a file open for writing passed into the function
-def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=False,elongRat=8,elongMols=400,rm=True):
-    (peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats)
-    if rm:
-            os.system('rm '+outgro)
+def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=False,writeGro=True,elongRat=8,elongMols=400,rm=True):
+    (peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats,writeGro=writeGro)
+
     pots = range(len(peps)/3/ats)
     inds = np.zeros(len(peps)/3/ats)
     ind = 1
@@ -143,7 +221,7 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,rab
         hnQs[len(clust),:] += hnq
         '''
         Error Checking Visualization
-        '''
+        
         fig3 = plt.figure()
         dEqr = np.reshape(dEq,[len(dEq)/3,3])
         dEnqr = np.reshape(dEnq,[len(dEnq)/3,3])
@@ -152,8 +230,8 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,rab
         ax3.scatter(dEqr[:,0],dEqr[:,1],dEqr[:,2],c='r',marker='o')
         ax3.scatter(0,0,0,c='g',marker='^')
         ax3.quiver(0,0,0,gPrinc[0],gPrinc[1],gPrinc[2])
-        print "rq is {}".format(rq)
-        print "rnq is {}".format(rnq)
+        #print "rq is {}".format(rq)
+        #print "rnq is {}".format(rnq)
         fig = plt.figure()
         plt.subplot(211)
         plt.bar(range(bins),hq/float(np.sum(hq)),color='r')
@@ -165,13 +243,15 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,rab
         plt.show()
         if ind > 1:
             pots = []
-        
+        '''
         ind+=1
         '''
         for i in range(len(rQs)):
         rQs[i] /= rQsnorm[i]
         rnQs[i] /= rnQsnorm[i]
         '''
+    if rm:
+        os.system('rm '+outgro)
     return (rQs,rQsnorm,rnQs,rnQsnorm,hQs,hnQs)
 
 def elongHist(gVals,gMoms,pepList,bins):
@@ -196,8 +276,8 @@ def radialHistZ(beadDists,bins,gPrinc):
         r = np.sqrt((vx-dot*zx)*(vx-dot*zx)+(vy-dot*zy)*(vy-dot*zy)+(vz-dot*zz)*(vz-dot*zz))
         rzs[i] = r
         if r > rzmax:
-            rmax = r
-    (h,bE) = np.histogram(rzs,bins=bins,range=(0.0,rmax))
+            rzmax = r
+    (h,bE) = np.histogram(rzs,bins=bins,range=(0.0,rzmax))
     
     return (np.mean(rzs),h)
 
@@ -274,13 +354,25 @@ def endDist(com,pepList,ats,endInds):
 
 if __name__ == "__main__":
     '''
+    ===============
+    ===DEBUGGING===
+    ===============
+    '''
+    testarray = np.array([0.0,0.0,0.0,1.0,0.0,0.0,2.0,0.0,0.0,3.0,0.0,0.0,4.0,0.0,0.0,1.0,-2.0,0.0,1.5,-1.5,0.0,1.75,-1.4,0.0,1.9,-1.5,0.0,2.0,-2.0,0.0,1.0,-4.0,0.0,1.5,-4.5,0.0,2.0,-5.0,0.0,2.5,-4.5,0.0,3.0,-4.0,0.0])
+    testqbool = np.array([1,1,1])
+    endInds = [0,4]
+    ats=5
+    (tQ,tNQ) = endToEnd(testarray,ats,endInds,testqbool)
+    print tQ
+    print tNQ
+    '''
     ==================
     ===Sanity Check===
     ==================
     testDists = np.array([0.0,7.0/(4*np.sqrt(2)),9.0/(4*np.sqrt(2)),0.0,9.0/(4*np.sqrt(2)),7.0/(4*np.sqrt(2))])
     testV = np.array([0.0,1.0/np.sqrt(2),1.0/np.sqrt(2)])
     print radialHistZ(testDists,10,testV)    
-    '''    
+  
     xtc = 'md_noW.xtc'
     tpr = 'md_dummy.tpr'
     t = 200000
@@ -296,7 +388,7 @@ if __name__ == "__main__":
     bins=10
     (rqs,rqsnorm,rnqs,rnqsnorm,hqs,hnqs) = clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=True)
     
-    '''
+    
     ===============
     =Visualization=
     ===============
