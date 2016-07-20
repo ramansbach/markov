@@ -1,16 +1,45 @@
 import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
+import imp
 from scipy import weave
 from operator import sub, div
-params = {'axes.titlesize':70,
-		'axes.labelsize':60,
-		'text.fontsize':60,
-		'font.size':50,
-		'lines.markersize':6,
-		'lines.linewidth':4,
-		'text.usetex':True,
-		'xtick.major.pad':7,
-		'ytick.major.pad':18}
-plt.rcParams.update(params)
+#params = {'axes.titlesize':70,
+#		'axes.labelsize':60,
+#		'text.fontsize':60,
+#		'font.size':50,
+#		'lines.markersize':6,
+#		'lines.linewidth':4,
+#		'text.usetex':True,
+#		'xtick.major.pad':7,
+#		'ytick.major.pad':18}
+#plt.rcParams.update(params)
+#Takes a .gro file and returns a 1d list of positions, box lengths, and a 1d list of whether the molecule does
+ #or does not contain a particular residue (used to tell if it's charged or uncharged)
+#resInfo is a tuple ('resname',pos), where position is the index within the molecule of the residue
+
+def readGroQ(fName,resInfo,ats):
+        with open(fName, 'r') as myF:
+                myLns = myF.read().splitlines()
+        boxL1 = float(myLns[len(myLns)-1].split()[0])
+        boxL2 = float(myLns[len(myLns)-1].split()[1])
+        boxL3 = float(myLns[len(myLns)-1].split()[2])
+        resBool = np.zeros([(len(myLns)-2)/ats,1])
+
+        j=0
+    
+        for i in range(resInfo[1]+2,len(myLns)-1,ats):
+            #print(myLns[i][5:8])
+            if myLns[i][5:8] == resInfo[0]:
+                #print(myLns[i][5:8])
+                #print i
+                resBool[j]=1.0
+            j+=1
+                #print(i/ats)
+        return (np.array([[float(myLns[i][20:].split()[0]), float(myLns[i][20:].split()[1]), float(myLns[i][20:].split()[2])] for i in range(2, len(myLns)-1)]).flatten(),np.array([boxL1,boxL2,boxL3]),resBool)
+
+def getPosQ(t,trj,tpr,outGro,resInfo,ats):
+        os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
+        #subprocess.check_output([])        
+        return readGroQ(outGro,resInfo,ats)
 
 #Takes a .gro file and returns a 1d list of positions. If the gro file format changes, this will break
 def readGro(fName): 
@@ -23,7 +52,7 @@ def readGro(fName):
 
 #Takes a 1d list of positions, a filename, and box vectors and writes out a gro file
 #molStructure is a list defining the name,type, and number of each atom (assume all molecules are the same)
-def writeGro(fName,poslist,boxV,molStructure=["1PAS","BB","1PAS","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAS","BB","15PAS","SC1"]
+def writeGro(fName,poslist,boxV,qbools,molStructureQ=["1PAQ","BB","1PAQ","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAQ","BB","15PAQ","SC1"],molStructure=["1PAS","BB","1PAS","SC1","2PHE","BB","2PHE","SC1","2PHE","SC2","2PHE","SC3","3ALA","BB","4GLY","BB","5COA","BB","6COP","BB","6COP","SC1","6COP","BB","7VIN","BB","8BEN","BB","8BEN","SC1","8BEN","BB","9VIN","BB","10COA","BB","11COP","BB","11COP","SC1","11COP","BB","12GLY","BB","13ALA","BB","14PHE","BB","14PHE","SC1","14PHE","SC2","14PHE","SC3","15PAS","BB","15PAS","SC1"]
 ):
 	f = open(fName,'w')
 	atomno = len(molStructure)/2
@@ -38,7 +67,10 @@ def writeGro(fName,poslist,boxV,molStructure=["1PAS","BB","1PAS","SC1","2PHE","B
 		for a in range(atomno):
 			
 			pos = poslist[3*m*atomno+3*a:3*m*atomno+3*a+3]
-			aname = molStructure[2*(a % atomno)]
+			if qbools[molno]:
+				aname = molStructureQ[2*(a % atomno)]
+			else:
+				aname = molStructure[2*(a % atomno)]
 			atype = molStructure[2*(a % atomno)+1]
 			#ano = molStructure[2*(a % atomno)+2]
 			#print pos			
@@ -244,9 +276,9 @@ def hydroRadClust(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		Rhs = np.append(Rhs,Rh)
 	return Rhs
 		
-def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,rm=True):
+def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 	#write out a library of .gro files of clusters
-	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	(peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats)
 	if rm:
 		os.system('rm '+outgro)
 	pots = range(len(peps)/3/ats)
@@ -260,18 +292,22 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,rm=True):
 		#clusts is a list of peptides that are found in the cluster
 		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
 		pepList = np.zeros(len(clusts)*ats*3)
+  		if len(clusts) == 53:
+     			print 2
 		curr = 0
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
 			curr+=1
+		pepList = fixPBC(pepList,box_length,ats,cutoff)
 		mer = len(clusts)
+
 		if mer in clustinds:
 			clustinds[mer]+=1
 		else:
 			clustinds[mer] = 1
 		fName = str(mer)+"mer_"+str(clustinds[mer])+".gro"
 		
-		writeGro(fName,pepList,box_length,molStruct)
+		writeGro(fName,pepList,box_length,qbool)
 		
 def clustMakeup(distrib,nmols):
 	#given a distribution of cluster sizes, output a list consisting of numbers of k-mers of up to nmols that fits the distribution reasonably well but also the correct number of molecules
@@ -765,18 +801,28 @@ def fixPBC(peps,box,ats,cutoff):
 	#create the list of fixed positions
 	fixedXYZ = peps.copy()
 	potInds = range(1,len(peps)/(ats*3))
+     	#print potInds
 	#the first ats*3 coordinates are the coordinates of the first atom
 	fixedXYZ[0:3*ats] = fixCoords(fixedXYZ[0:3*ats].copy(),fixedXYZ[0:3].copy(),box)
 	correctInds = [0]
+ 	neighs = []
 	while len(correctInds) > 0:
-		atom = correctInds.pop()
+
+  		#for k in neighs:
+		#	for s in range(3*ats*k,3*ats*(k+1)):
+ 		#		#if fixedXYZ[s] > 20:
+		#		#	print fixedXYZ[s]  
+		atom = correctInds.pop()       
+		#if peps[3*atom*ats+2] > 20:
+		#	print ''
 		neighs = getNeigh(atom,cutoff,peps,potInds,ats)
+
 		for n in neighs:
-                #if n == 2:
-                 #   print ''
+		#	if n == 31:
+		#		print ''
 			potInds.remove(n)
 			correctInds.append(n)
-			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(peps[3*ats*n:3*ats*(n+1)].copy(),peps[3*atom*ats:3*atom*ats+3].copy(),box)
+			fixedXYZ[3*ats*n:3*ats*(n+1)] = fixCoords(fixedXYZ[3*ats*n:3*ats*(n+1)].copy(),fixedXYZ[3*atom*ats:3*atom*ats+3].copy(),box)
 	return fixedXYZ
 
 def fixCoords(pos,posinit,box):
