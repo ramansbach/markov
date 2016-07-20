@@ -67,7 +67,7 @@ def writeGro(fName,poslist,boxV,qbools,molStructureQ=["1PAQ","BB","1PAQ","SC1","
 		for a in range(atomno):
 			
 			pos = poslist[3*m*atomno+3*a:3*m*atomno+3*a+3]
-			if qbools[molno]:
+			if qbools[m]:
 				aname = molStructureQ[2*(a % atomno)]
 			else:
 				aname = molStructure[2*(a % atomno)]
@@ -292,9 +292,12 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 		#clusts is a list of peptides that are found in the cluster
 		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
 		pepList = np.zeros(len(clusts)*ats*3)
+		qboolc = np.zeros(len(clusts))
 		curr = 0
 		for clust in clusts:
 			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+
+   			qboolc[curr] = qbool[clust]
 			curr+=1
 		pepList = fixPBC(pepList,box_length,ats,cutoff)
 		mer = len(clusts)
@@ -304,7 +307,7 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 			clustinds[mer] = 1
 		fName = str(mer)+"mer_"+str(clustinds[mer])+".gro"
 		
-		writeGro(fName,pepList,box_length,qbool)
+		writeGro(fName,pepList,box_length,qboolc)
 		
 def clustMakeup(distrib,nmols):
 	#given a distribution of cluster sizes, output a list consisting of numbers of k-mers of up to nmols that fits the distribution reasonably well but also the correct number of molecules
