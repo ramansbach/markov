@@ -16,6 +16,24 @@ from operator import sub, div
  #or does not contain a particular residue (used to tell if it's charged or uncharged)
 #resInfo is a tuple ('resname',pos), where position is the index within the molecule of the residue
 
+def recluster1(ind,coms,cutoff,box):
+	
+	currind = ind
+	#mols = range(np.shape(coms,1)))
+	inds = np.zeros(np.shape(mols))
+	masses = np.zeros(np.shape(mols))
+	while len(mols) > 0:
+		currmol = mols[0]
+		mols = mols.remove(currmol)
+		clust = getClust1(currmol,mols,coms,cutoff,box)
+		for c in clust:
+			mols = mols.remove(c)
+			inds[c] = currind
+			masses[c] = len(clust)
+		currind += 1
+	return (inds,masses)
+		
+
 def readGroQ(fName,resInfo,ats):
         with open(fName, 'r') as myF:
                 myLns = myF.read().splitlines()
@@ -113,6 +131,10 @@ def getPosB(t,trj,tpr,outGro):
 	p1.communicate("0")
 	return readGro(outGro)
 
+#same as before except assumes it's given a grofile
+def getPosGro(groname):
+	return readGro(groname)
+
 #same as before except assumes we have the .gro files already
 def getPosB2(ind, grobase):
 	return readGro(grobase + str(ind) + '.gro')
@@ -208,6 +230,60 @@ def getClust(ind, cutoff, pepList, potentialInds, ats, printMe):
 	#end = time.clock();
 	#print end - start;
 	return neighInds
+ 
+ #Returns an array of arrays. Each inner array is a list of peptide indices that are in the same cluster. A cluster is defined as the largest list of molecules for which each molecule in the list is neighbors either directly or indirectly (neighbors of neighbors of neighbors etc...) neighbors with each other molecule. ind is the atom to check the cluster of, cutoff is the minimum distance that defines neighbors, peplist is a list of all atoms in the simulation, potentialInds is the list of indices that could possibly be neighbors with ind, ats is the number of atoms per peptide (this is important for dividing up pepList and must be constant for all peptides in pepList), and printMe is a boolean that will cause the immediate neighbors of ind to be printed if it is true (more for debuging and checking things).
+def getClustTest(ind, cutoff, pepList, potentialInds, ats, printMe):
+	#start = time.clock()
+	neighInds = getNeighTest(ind, cutoff, pepList, potentialInds, ats)
+	if printMe:
+		print("Neighbors of " + str(ind) + " are found to have indices of: ")
+		print(neighInds)
+
+	for neighInd in neighInds:
+		potentialInds.remove(neighInd)
+	if ind == 3:
+		2
+	for neighInd in neighInds:
+		vals = getClustTest(neighInd, cutoff, pepList, potentialInds, ats, printMe)
+		if len(vals) > 0:
+			neighInds += vals
+	#end = time.clock();
+	#print end - start;
+	return neighInds
+ 
+def getNeighTest(ind, cutoff, peplist, potentialInds, ats):
+	ret = []
+
+	cutsq = cutoff
+#	support = '#include <math.h>'
+#
+#	code = """
+#
+#	int i, j;
+#	return_val = 0;
+#	for(i=0; i<Npep1[0]/3; i++){
+#		for(j=0; j<Npep2[0]/3; j++){
+#			if ((pow(pep1[3*i]-pep2[3*j],2) + pow(pep1[3*i+1]-pep2[3*j+1],2) + pow(pep1[3*i+2]-pep2[3*j+2],2)) < cutsq){
+#				return_val = 1;
+#				break;
+#			}
+#		}
+#		if(return_val == 1)
+#			break;
+#	}
+#			"""
+#	pep1 = peplist[ind*3*ats:(ind+1)*3*ats] #Assumes all peptides have ats atoms in them. The 3 is for 3 coords in 3 dimensions.
+#	for i in range(len(potentialInds)):
+#		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
+#		test = weave.inline(code,['pep1', 'pep2', 'cutsq'], support_code = support, libraries = ['m'])
+#		if test == 1:
+#			ret.append(potentialInds[i])
+	for p in potentialInds:
+		d = abs(peplist[ind]-peplist[p])
+		if d < cutsq:
+			ret.append(p)
+ 
+	return ret
 
 #Returns an array of arrays. Each inner array is a list of peptide indices that are in the same cluster. A cluster is defined as the largest list of molecules for which each molecule in the list is neighbors either directly or indirectly (neighbors of neighbors of neighbors etc...) neighbors with each other molecule. ind is the atom to check the cluster of, cutoff is the minimum distance that defines neighbors, peplist is a list of all atoms in the simulation, potentialInds is the list of indices that could possibly be neighbors with ind, ats is the number of atoms per peptide (this is important for dividing up pepList and must be constant for all peptides in pepList), and printMe is a boolean that will cause the immediate neighbors of ind to be printed if it is true (more for debuging and checking things). Assumes PBC
 def getClustPBC(ind, cutoff, pepList, potentialInds, ats, boxlx,boxly,boxlz,printMe):
@@ -325,6 +401,31 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 		
 		
 		writeGro(clustinds[mer],pepList,box_length,qboolc)
+
+
+#use the aromarecluster file which has group index and peptide index in it, to put together a list of clusters as defined in that file and then write those clusters out separately like writeClustLibrary
+def writeSubClusterLibrary(aromaFile,t,xtc,tpr,outgro,resInfo,ats,cutoff):
+	a = open(aromaFile,'r')
+	lines = a.readline()
+	a.close()
+	clusters = dict()
+	for line in lines:
+		spline = line.split()
+		ind = int(spline[1]) 
+		pepind = int(spline[30])
+		if clusters.has_key(ind):
+			j[ind].append(pepind)
+		else:
+			clusters[ind] = [pepind]
+
+	(peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats)
+	for key in clusters.keys():
+		clustinds = clusters[key]
+		pepList = np.zeros(3*len(clustinds))
+		for c in range(len(clustinds)):
+			pepList[3*c:(3*c+3)] = peps[3*clustinds[c]:(3*clustinds[c]+3)]
+		pepList = fixPBC(pepList,box_length,ats,cutoff) 
+		
 		
 def clustMakeup(distrib,nmols):
 	#given a distribution of cluster sizes, output a list consisting of numbers of k-mers of up to nmols that fits the distribution reasonably well but also the correct number of molecules
@@ -505,15 +606,12 @@ def aromaCOM(arom,posList,aromMass,molInds,boxL):
 	coma = (aromMass[1]*db1 + aromMass[2]*db2)/(aromMass[0]+aromMass[1]+aromMass[2]) + b0p
 	return coma
 
-def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,aromMass,rm=True):
-	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
-	#print box_length
-	if rm:
-		os.system('rm '+outgro)
+def aromaticSnap(infname,cutoff,ats,beadList,beadMasses,aromBeads,aromMass):
+	(peps,box_length) = getPosGro(infname)
 	pots = range(len(peps)/3/ats)
 	inds = np.zeros(len(peps)/3/ats)
 	ind = 1
-	achars = np.empty((0,29),float)
+	achars = np.empty((0,30),float)
 	cNum = 0
 	while len(pots) > 0:
 		
@@ -532,12 +630,50 @@ def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,arom
 	
 		cNums = cNum*np.ones([len(coms),1])
 		cSizes = len(clusts)*np.ones([len(coms),1])
-
+		clustList = np.array(clusts)
+		clustList = np.reshape(clustList,[len(coms),1])
+		try:
+			adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes,aromaCOMs,clustList),axis=1)
+			achars = np.concatenate((achars,adata),axis=0)
+		except:
+			np.shape(clustList)      
+		cNum+=1
+	
+	return achars
+def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,aromMass,rm=True):
+	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	#print box_length
+	if rm:
+		os.system('rm '+outgro)
+	pots = range(len(peps)/3/ats)
+	inds = np.zeros(len(peps)/3/ats)
+	ind = 1
+	achars = np.empty((0,30),float)
+	cNum = 0
+	while len(pots) > 0:
 		
-		adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes,aromaCOMs),axis=1)
-
-		achars = np.concatenate((achars,adata),axis=0)
-
+		init = pots[0]
+		pots.remove(init)
+		clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+		#clusts is a list of peptides that are found in the cluster
+		#each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+		pepList = np.zeros(len(clusts)*ats*3)
+		curr = 0
+		#mass = len(clusts);
+		for clust in clusts:
+			pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+			curr+=1
+		(coms,orients,aromaPlanes,aromaCOMs) = aromaticDataC(pepList,ats,beadList,beadMasses,aromBeads,aromMass,box_length)
+	
+		cNums = cNum*np.ones([len(coms),1])
+		cSizes = len(clusts)*np.ones([len(coms),1])
+		clustList = np.array(clusts)
+		clustList = np.reshape(clustList,[len(coms),1])
+		try:
+			adata = np.concatenate((cNums,cSizes,coms,orients,aromaPlanes,aromaCOMs,clustList),axis=1)
+			achars = np.concatenate((achars,adata),axis=0)
+		except:
+			np.shape(clustList)      
 		cNum+=1
 	
 	return achars
@@ -1912,3 +2048,12 @@ def qintfull3(dclusts, ts, dclusts2, ts2):
 
 		plt.legend(loc=1)
 		plt.show()
+  
+if __name__ == '__main__':
+    cut = 1.5
+    ind = 0
+    pepList = np.array([2.0,3.0,4.0,1.0,-5.0,-6.0,-7.0])
+    pots = [1,2,3,4,5,6]
+    ats = 5
+    c = getClustTest(ind,cut,pepList,pots,ats,False)
+    print c
