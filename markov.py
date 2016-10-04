@@ -1,4 +1,4 @@
-import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst
+import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst, scipy.spatial.distance as spsd
 
 from scipy import weave
 from operator import sub, div
@@ -401,6 +401,7 @@ def writeClustLibrary(t,xtc,tpr,outgro,cutoff,ats,molStruct,resInfo,rm=True):
 		
 		
 		writeGro(clustinds[mer],pepList,box_length,qboolc)
+  
 
 
 #use the aromarecluster file which has group index and peptide index in it, to put together a list of clusters as defined in that file and then write those clusters out separately like writeClustLibrary
@@ -640,6 +641,170 @@ def aromaticSnap(infname,cutoff,ats,beadList,beadMasses,aromBeads,aromMass):
 		cNum+=1
 	
 	return achars
+ 
+def getCOM(poslist,masslist):
+    #return com coordinates of a single molecule
+    com = np.zeros(3)
+    N = len(poslist)
+    support = '#include <math.h>'
+    code = """
+    double M = 0.0;
+    double rx = 0.0;
+    double ry = 0.0;
+    double rz = 0.0;
+    for (int i = 0; i < N; i++){
+            rx += double(masslist[i])*double(poslist[3*i]);
+            ry += double(masslist[i])*double(poslist[3*i+1]);
+            rz += double(masslist[i])*double(poslist[3*i+2]);
+            M += double(masslist[i]);
+    }
+    rx /= M;
+    ry /= M;
+    rz /= M;
+    com[0] = rx;
+    com[1] = ry;
+    com[2] = rz;
+    """
+    weave.inline(code,['poslist','N','com','masslist'],support_code = support,libraries=['m'])
+    return com    
+    
+def getCOMs(poslist,masslist,ats):
+    #return the center of mass of each molecule in a position list of peptides
+    N = len(poslist)/3/ats #total number of molecules
+    comlocs = np.zeros(3*N)
+    for i in range(N):
+        Rcom = getCOM(poslist[3*ats*i:3*ats*i+3*ats],masslist)
+        comlocs[3*i:3*i+3] = Rcom
+    return comlocs
+    
+def corrDim(comsnap,emax,estep):
+    #calculate C(eps) from 0 to emax with steps of estep, where C(eps) is 
+    #the correlation sum on the set of center-of-mass distances given as comsnap
+    
+    distsq = spsd.pdist(comsnap,'sqeuclidean')
+
+    epss = np.arange(estep,emax+estep,estep) 
+    ce = np.zeros(len(epss))
+
+    support = '#include <math.h>'
+    code = """
+    for (int i = 0; i < Ndistsq[0]; i++){
+        for (int k = 0; k < Nepss[0]; k++){
+            if (distsq[i] <= epss[k]*epss[k]){
+                ce[k]++;
+                
+            }
+        }    
+    }
+    """
+    weave.inline(code,['emax','estep','distsq','ce','epss'],support_code=support,libraries=['m'])
+    N = len(comsnap)
+    ce = ce/(N*(N-1))
+#    for i in range(Ndsq):
+#        
+#        for k in range(len(epss)):
+#            if distsq[i] < epss[k]*epss[k]:
+#                ce[k]+=1
+
+    return (epss,ce)
+    
+def corrDimP(comsnap,emax,estep):
+    #calculate C(eps) from 0 to emax with steps of estep, where C(eps) is 
+    #the correlation sum on the set of center-of-mass distances given as comsnap
+    
+    distsq = spsd.pdist(comsnap,'sqeuclidean')
+
+    epss = np.arange(estep,emax+estep,estep) 
+    ce = np.zeros(len(epss))
+
+    #support = '#include <math.h>'
+    #code = 
+    """
+    for (int i = 0; i < Ndistsq[0]; i++){
+        for (int k = 0; k < Nepss[0]; k++){
+            if (distsq[i] <= epss[k]*epss[k]){
+                ce[k]++;
+                
+            }
+        }    
+    }
+    """
+   # weave.inline(code,['emax','estep','distsq','ce','epss'],support_code=support,libraries=['m'])
+    N = len(comsnap)
+    ce = ce/(N*(N-1))
+    for i in range(len(distsq)):
+        
+        for k in range(len(epss)):
+            if distsq[i] <= epss[k]*epss[k]:
+                ce[k]+=1
+
+    return (epss,ce)
+ 
+def corrcalc(t,xtc,tpr,outgro,ats,emax,estep,masslist,fnbase,rm=True):
+    #first calculate and write out the C(e) function for a full snapshot
+    (peps,box_length) = getPosB(t,xtc,tpr,outgro)
+
+    if rm:
+        os.system('rm '+outgro)
+    comsnap = getCOMs(peps,masslist,ats) #get the center of mass locations of the molecules in the box
+    comsnapr = comsnap.reshape([len(comsnap)/3,3])
+    (epsnap,cdsnap) = corrDim(comsnapr,emax,estep) #get a matrix of e in row 1 and C(e) in row 2
+    f = open(fnbase+'_'+str(t/1000)+'_snap.dat','w')
+    for i in range(len(cdsnap)):
+        f.write('{0}\t{1}\n'.format(epsnap[i],cdsnap[i]))
+    f.close()
+
+def corrcalcClust(t,xtc,tpr,outgro,ats,emax,estep,masslist,fnbase,cutoff,rm=True):
+    #then calculate and write out the C(e) function for each cluster
+    (peps,box_length) = getPosB(t,xtc,tpr,outgro)
+	#print box_length
+    if rm:
+        os.system('rm '+outgro)
+    pots = range(len(peps)/3/ats)
+    ind = 0
+    while len(pots) > 0:	
+        init = pots[0]
+        pots.remove(init)
+        clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+        #clusts is a list of peptides that are found in the cluster
+        #each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+        pepList = np.zeros(len(clusts)*ats*3)
+        curr = 0
+        #mass = len(clusts);
+        for clust in clusts:
+            pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+            curr+=1
+        pepList = fixPBC(pepList,box_length,ats,cutoff)
+        #if len(pepList)/3/ats == 1:
+         #   print "help"
+        pepcoms = getCOMs(pepList,masslist,ats)
+        pepcomsr = pepcoms.reshape([len(pepcoms)/3,3])
+        (epc,cdc) = corrDim(pepcomsr,emax,estep)
+        f = open(fnbase+'_'+str(t/1000)+'_'+str(len(pepList)/3/ats)+'_c_'+str(ind)+'.dat','w')
+        for i in range(len(cdc)):
+            f.write('{0}\t{1}\n'.format(epc[i],cdc[i]))
+        f.close()
+        ind+=1
+    
+def testcorrcalc(infile,outfile,emax,estep):
+    #make sure corrcalc does the same thing that Jiang's test code does
+    f = open(infile)
+    lines = f.readlines()
+    f.close()
+    comsnap = np.zeros([len(lines),3])
+    l = 0
+    for line in lines:
+        spline = line.split()
+        comsnap[l,0] = float(spline[0])
+        comsnap[l,1] = float(spline[1])
+        comsnap[l,2] = float(spline[2])
+        l+=1
+    (epstest,cdtest) = corrDim(comsnap,emax,estep)
+    o = open(outfile,'w')
+    for i in range(len(cdtest)):
+        o.write('{0}\t{1}\n'.format(epstest[i],cdtest[i]))
+    o.close()
+
 def aromaticClust(t,xtc,tpr,outgro,cutoff,ats,beadList,beadMasses,aromBeads,aromMass,rm=True):
 	(peps,box_length) = getPosB(t,xtc,tpr,outgro)
 	#print box_length
@@ -2050,10 +2215,27 @@ def qintfull3(dclusts, ts, dclusts2, ts2):
 		plt.show()
   
 if __name__ == '__main__':
-    cut = 1.5
-    ind = 0
-    pepList = np.array([2.0,3.0,4.0,1.0,-5.0,-6.0,-7.0])
-    pots = [1,2,3,4,5,6]
-    ats = 5
-    c = getClustTest(ind,cut,pepList,pots,ats,False)
-    print c
+#    comsnap = np.array([1.,0.,0.,2.,0.,0.,3.,0.,0.,4.,0.,0.])
+#    emax = 3.5
+#    estep = 0.5
+#    ce = corrDim(comsnap,emax,estep)
+#    print ce
+    emax = 42
+    estep = 0.1
+    folder = '/home/rachael/cluster/data/mansbac2/coarsegraining/MD/DFAG/378mols_run4/4_md/'
+    ti = 400000
+    tf = 400000
+    dt = 400000
+    xtc = folder+'sizedata/md_noW.xtc'
+    tpr = folder+'sizedata/md_dummy.tpr'
+    ats = 29
+    fnbase = folder+'corrdimdata/mcdim'
+    masslist = np.ones(ats)*45.
+    m72 = [0,1,2,6,7,21,22,23,27,28]
+    masslist[m72] = 72.
+    outgro = 'temp.gro'
+    cutoff=0.5
+    for t in range(ti,tf+dt,dt):
+        print t
+        corrcalc(t,xtc,tpr,outgro,ats,emax,estep,masslist,fnbase,rm=True)
+        #corrcalcClust(t,xtc,tpr,outgro,ats,emax,estep,masslist,fnbase,cutoff,rm=True)
