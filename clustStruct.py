@@ -1,8 +1,8 @@
 import numpy as np, imp,os
 try:
-	mk = imp.load_source('mk','/home/mansbac2/coarsegraining/code/markov.py')
+	mk = imp.load_source('mk','/home/mansbac2/coarsegraining/code/markov/markov.py')
 except IOError:
-	mk = imp.load_source('mk','/home/rachael/Analysis_and_run_code/coarsegraining/markov/markov.py')
+	mk = imp.load_source('mk','/home/rachael/cluster/home/mansbac2/coarsegraining/code/markov/markov.py')
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
 import matplotlib
@@ -139,7 +139,7 @@ def endToEndMono(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,outfq,outfnq
 #resInfo is ('PAQ',0) for DFAG,masses is a list of the beads in .gro file order mass in amu (either 72 or 46)
 #endInds are the indices in the .gro file containing the 4 charged beads (in DFAG, that is [0,1,27,28]
 #outf is a file open for writing passed into the function
-def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,raboutz=False,writeGro=True,elongRat=8,elongMols=400,rm=True):
+def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,outfrs,raboutz=False,writeGro=True,elongRat=8,elongMols=400,rm=True):
     (peps,box_length,qbool) = getPosQ(t,xtc,tpr,outgro,resInfo,ats,writeGro=writeGro)
 
     pots = range(len(peps)/3/ats)
@@ -195,16 +195,21 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,rab
         gVals = np.sort(gVals)
         gMoms = gStuff[1]
         gPrinc = gMoms[:,indmax]
+        g2 = gMoms[:,np.argsort(gVals)[1]] #second principal eigenvector
         rat = gVals[2]/gVals[0]
     
         if raboutz:
             #find the average perpendicular distance from the z' axis
             #where the z' axis is the principal moment of the gyration tensor
-            (rq,hq) = radialHistZ(dEq,bins,gPrinc)
-            (rnq,hnq) = radialHistZ(dEnq,bins,gPrinc)
+                        
+            (rq,hq,rsq1) = radialHistZ(dEq,bins,gPrinc)
+            (rnq,hnq,rsnq1) = radialHistZ(dEnq,bins,gPrinc)
+            (rq2,hq2,rsq2) = radialHistZ(dEq,bins,g2)
+            (rnq2,hnq2,rsnq2) = radialHistZ(dEnq,bins,g2)
+
         else:
-            (rq,hq) = radialHist(dEq,bins)
-            (rnq,hnq) = radialHist(dEnq,bins)
+            (rq,hq,rsq) = radialHist(dEq,bins)
+            (rnq,hnq,rsnq) = radialHist(dEnq,bins)
 	nC = len(clust)
 	nQ = np.sum(qbool[clust])
 	outf.write("\t{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\t{8}\t{9}".format(t,nC,nQ,float(nQ)/(float(nC)),gVals[0],gVals[1],gVals[2],rat,rq,rnq))
@@ -212,7 +217,18 @@ def clustStruct(t,xtc,tpr,outgro,cutoff,resInfo,ats,masses,endInds,bins,outf,rab
 		outf.write("\t{}".format(hq[w]))
 	for w in range(bins):
 		outf.write("\t{}".format(hnq[w]))
+        if raboutz:
+                for w in range(len(rsq1)):
+                        outfrs.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(t,nC,rsq1[w],rsq2[w],1))
+                for w in range(len(rsnq1)):
+                        outfrs.write("{0}\t{1}\t{2}\t{3}\t{4}\n".format(t,nC,rsnq1[w],rsnq2[w],0))
+        else:
+                for w in range(len(rsq)):
+		        outfrs.write("{0}\t{1}\t{2}\t{3}\n".format(t,nC,rsq[w],1))#1 for charged
+ 	        for w in range(len(rsnq)):
+		        outfrs.write("{0}\t{1}\t{2}\t{3}\n".format(t,nC,rsnq[w],0))#0 for charged        
 	outf.write("\n")
+     
         hQs[len(clust),:] += hq
         rQs[len(clust)] += rq #track mean distance from COM
         rQsnorm[len(clust)]+=1 #normalization for mean (let's not do standard deviation yet)
@@ -279,7 +295,7 @@ def radialHistZ(beadDists,bins,gPrinc):
             rzmax = r
     (h,bE) = np.histogram(rzs,bins=bins,range=(0.0,rzmax))
     
-    return (np.mean(rzs),h)
+    return (np.mean(rzs),h,rzs)
 
 def radialHist(beadDists,bins):
     #construct a histogram of the radial distances from the coms of the beads
@@ -296,7 +312,7 @@ def radialHist(beadDists,bins):
     (h,bE) = np.histogram(rs,bins=bins,range=(0.0,rmax))
     
     #return histogram
-    return (np.mean(rs),h)
+    return (np.mean(rs),h,rs)
         
 def getQinds(qbool,l):
     #All this does is multiply qbool so that it has an entry for each end bead rather than just for the molecules

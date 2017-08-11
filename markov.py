@@ -127,9 +127,10 @@ def getPos(t, trj, tpr, outGro):
 #same as before except also returns box-length variable
 def getPosB(t,trj,tpr,outGro):
 	#os.system('echo 0 | trjconv -f ' + trj + ' -o ' + outGro + ' -b ' + str(t) + ' -e ' + str(t) + ' -s ' + tpr)
-	p1 = subprocess.Popen(["trjconv","-f",trj,"-o",outGro,"-b",str(t),"-e",str(t),"-s",tpr],stdin = subprocess.PIPE)
-	p1.communicate("0")
-	return readGro(outGro)
+	
+     p1 = subprocess.Popen(["trjconv","-f",trj,"-o",outGro,"-b",str(t),"-e",str(t),"-s",tpr],stdin = subprocess.PIPE)
+     p1.communicate("0")
+     return readGro(outGro)
 
 #same as before except assumes it's given a grofile
 def getPosGro(groname):
@@ -652,7 +653,7 @@ def getCOM(poslist,masslist):
     double rx = 0.0;
     double ry = 0.0;
     double rz = 0.0;
-    for (int i = 0; i < N; i++){
+    for (int i = 0; i < N/3; i++){
             rx += double(masslist[i])*double(poslist[3*i]);
             ry += double(masslist[i])*double(poslist[3*i+1]);
             rz += double(masslist[i])*double(poslist[3*i+2]);
@@ -668,6 +669,33 @@ def getCOM(poslist,masslist):
     weave.inline(code,['poslist','N','com','masslist'],support_code = support,libraries=['m'])
     return com    
     
+    
+def getCOMpy(poslist,masslist):
+    #return com coordinates of a single molecule, written in python
+    N = len(poslist)
+    com = np.zeros(3)
+    rx = 0.
+    ry = 0.
+    rz = 0.
+    for i in range(N/3):
+        rx += masslist[i]*poslist[3*i]
+        ry += masslist[i]*poslist[3*i+1]
+        rz += masslist[i]*poslist[3*i+2]
+    M = np.sum(masslist)
+    rx /= M
+    ry /= M
+    rz /= M
+    com[0] = rx
+    com[1] = ry
+    com[2] = rz
+    return com
+    
+def getCOMnumpy(poslist,masslist):
+    #return com coordinates of a single molecule, written in python using numpy
+    poslist3 = poslist.reshape([len(poslist)/3,3])
+    com = np.dot(masslist,poslist3)/masslist.sum()
+    return com
+    
 def getCOMs(poslist,masslist,ats):
     #return the center of mass of each molecule in a position list of peptides
     N = len(poslist)/3/ats #total number of molecules
@@ -676,6 +704,34 @@ def getCOMs(poslist,masslist,ats):
         Rcom = getCOM(poslist[3*ats*i:3*ats*i+3*ats],masslist)
         comlocs[3*i:3*i+3] = Rcom
     return comlocs
+'''    
+def getCOMsWRONG(poslist,masslist,ats):
+    #return the center of mass of each molecule in a position list of peptides
+    N = len(poslist)/3/ats #total number of molecules
+    comlocs = np.zeros(3*N)
+    for i in range(N):
+        Rcom = getCOMWRONG(poslist[3*ats*i:3*ats*i+3*ats],masslist)
+        comlocs[3*i:3*i+3] = Rcom
+    return comlocs
+    
+def getCOMspy(poslist,masslist,ats):
+    #return the center of mass of each molecule in a position list of peptides
+    N = len(poslist)/3/ats #total number of molecules
+    comlocs = np.zeros(3*N)
+    for i in range(N):
+        Rcom = getCOMpy(poslist[3*ats*i:3*ats*i+3*ats],masslist)
+        comlocs[3*i:3*i+3] = Rcom
+    return comlocs
+    
+def getCOMsnumpy(poslist,masslist,ats):
+    #return the center of mass of each molecule in a position list of peptides
+    N = len(poslist)/3/ats #total number of molecules
+    comlocs = np.zeros(3*N)
+    for i in range(N):
+        Rcom = getCOMnumpy(poslist[3*ats*i:3*ats*i+3*ats],masslist)
+        comlocs[3*i:3*i+3] = Rcom
+    return comlocs
+'''
     
 def corrDim(comsnap,emax,estep):
     #calculate C(eps) from 0 to emax with steps of estep, where C(eps) is 
@@ -1139,7 +1195,42 @@ def fixCoords(pos,posinit,box):
 		dr = dr - box*np.round(dr/box)
 		pos[3*i:3*i+3] = dr + posinit
 	return pos
-	
+'''
+def e2edist(pepList):
+    #find the largest distance between any two beads in the cluster
+    
+
+def end2end(t,xtc,tpr,outgro,cutoff,ats,rm=True):
+    #run through all clusters and return cluster size and largest distance between
+    #any two beads in the cluster
+    (peps,box_length) = getPosB(t,xtc,ptr,outgro)
+    if rm:
+        os.system('rm '+outgro)
+    pots = range(len(peps)/3/ats)
+    inds = np.zeros(len(peps)/3/ats)
+    ind = 1
+    e2es = np.array([])
+    ms = np.array([])
+    while len(pots) > 0:
+        init = pots[0]
+        pots.remove(init)
+        clusts = getClust(init,cutoff,peps,pots,ats,False) + [init]
+        #clusts is a list of peptides that are found in the cluster
+        #each index in clusts corresponds to the indices index*ats*3:(index+1)*ats*3 in peps
+        pepList = np.zeros(len(clusts)*ats*3)
+        curr = 0
+        #mass = len(clusts);
+        for clust in clusts:
+            inds[clust] = ind
+            pepList[curr*ats*3:(curr+1)*ats*3]=peps[clust*ats*3:(clust+1)*ats*3]
+            curr+=1
+        pepList = fixPBC(pepList,box_length,ats,cutoff)
+        ee = e2edist(pepList)
+        mass = float(len(clust))
+        ms = np.append(ms,mass)
+        e2es = np.append(e2es,ee)
+    return (ms,e2es)
+'''
 
 def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 	#return the index of which clusters each peptide is in
@@ -1182,7 +1273,7 @@ def clustMorph(t,xtc,tpr,outgro,cutoff,ats,rm=True):
 		eigMorph[0] = eigval[0]
 		eigMorph[1] = eigval[1]
 		eigMorph[2] = eigval[2]
-		eigMorph[3] = eigMorph[0]+eigMorph[1]+eigMorph[2] #Rg
+		eigMorph[3] = eigMorph[0]+eigMorph[1]+eigMorph[2] #Rg^2
 		eigMorph[4] = 1.5*eigMorph[2]-0.5*eigMorph[3]
 		
 		eigvals = np.append(eigvals,eigMorph)
