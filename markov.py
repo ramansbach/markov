@@ -146,7 +146,7 @@ def getPosBWhole(t,trj,tpr,outGro):
 	return readGro(outGro)
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
-def getNeigh(ind, cutoff, peplist, potentialInds, ats):
+def getNeighContact(ind, cutoff, peplist, potentialInds, ats):
 	ret = []
 
 	cutsq = cutoff**2
@@ -175,6 +175,40 @@ def getNeigh(ind, cutoff, peplist, potentialInds, ats):
 			ret.append(potentialInds[i])
 	
 	return ret
+ 
+ #python version for debugging Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
+def getNeighContactPy(ind, cutoff, peplist, potentialInds, ats):
+	ret = []
+
+	cutsq = cutoff**2
+
+	pep1 = peplist[ind*3*ats:(ind+1)*3*ats] #Assumes all peptides have ats atoms in them. The 3 is for 3 coords in 3 dimensions.
+	for i in range(len(potentialInds)):
+		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
+  		test = 0
+  		for k in range(len(pep1)/3):
+			for l in range(len(pep2)/3):
+				if (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2])< cutsq:
+					test = 1
+					break
+			if test == 1:
+				break
+		if test == 1:
+			ret.append(potentialInds[i])
+	
+	return ret
+ 
+
+#Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
+def getNeigh(ind, cutoff, peplist, potentialInds, ats, metric = 'contact'):
+	ret = []
+	if metric == 'contact':     
+		ret = getNeighContact(ind,cutoff,peplist,potentialInds,ats)
+	elif metric == 'optical':     
+		ret = getNeighContact(ind,cutoff,peplist,potentialInds,ats) 
+	return ret
+
+
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide. This version assumes periodic boundary conditions
 def getNeighPBC(ind, cutoff, peplist, potentialInds, ats,boxlx,boxly,boxlz):
@@ -215,9 +249,9 @@ def getNeighPBC(ind, cutoff, peplist, potentialInds, ats,boxlx,boxly,boxlz):
 	return ret
 
 #Returns an array of arrays. Each inner array is a list of peptide indices that are in the same cluster. A cluster is defined as the largest list of molecules for which each molecule in the list is neighbors either directly or indirectly (neighbors of neighbors of neighbors etc...) neighbors with each other molecule. ind is the atom to check the cluster of, cutoff is the minimum distance that defines neighbors, peplist is a list of all atoms in the simulation, potentialInds is the list of indices that could possibly be neighbors with ind, ats is the number of atoms per peptide (this is important for dividing up pepList and must be constant for all peptides in pepList), and printMe is a boolean that will cause the immediate neighbors of ind to be printed if it is true (more for debuging and checking things).
-def getClust(ind, cutoff, pepList, potentialInds, ats, printMe):
+def getClust(ind, cutoff, pepList, potentialInds, ats, printMe, metric = 'contact'):
 	#start = time.clock()
-	neighInds = getNeigh(ind, cutoff, pepList, potentialInds, ats)
+	neighInds = getNeigh(ind, cutoff, pepList, potentialInds, ats, metric)
 	if printMe:
 		print("Neighbors of " + str(ind) + " are found to have indices of: ")
 		print(neighInds)
@@ -225,7 +259,7 @@ def getClust(ind, cutoff, pepList, potentialInds, ats, printMe):
 	for neighInd in neighInds:
 		potentialInds.remove(neighInd)
 	for neighInd in neighInds:
-		vals = getClust(neighInd, cutoff, pepList, potentialInds, ats, printMe)
+		vals = getClust(neighInd, cutoff, pepList, potentialInds, ats, printMe, metric)
 		if len(vals) > 0:
 			neighInds += vals
 	#end = time.clock();
