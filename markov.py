@@ -198,6 +198,51 @@ def getNeighContactPy(ind, cutoff, peplist, potentialInds, ats):
 	
 	return ret
  
+#Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
+def getNeighAlign(ind, cutoff, peplist, potentialInds, ats):
+	ret = []
+
+	cutsq = cutoff**2
+	support = '#include <math.h>'
+
+	code = """
+
+	int i, j;
+	return_val = 0;
+     int tally = 0;
+     int* pep2visited = NULL;
+     int n = Npep2[0]/3;
+     pep2visited = new int[n];
+     for (int k = 0; k < n; k++){
+        pep2visited[k] = 0;     
+     }
+	for(i=0; i<Npep1[0]/3; i++){
+		for(j=0; j<Npep2[0]/3; j++){
+			if ((pow(pep1[3*i]-pep2[3*j],2) + pow(pep1[3*i+1]-pep2[3*j+1],2) + pow(pep1[3*i+2]-pep2[3*j+2],2)) < cutsq){
+				if (pep2visited[j] == 0){
+                            tally++;
+                            pep2visited[j] = 1;
+                            break;
+                        }
+			}
+		}
+		if(tally > 2){
+                return_val = 1;
+			break;
+               }
+       
+	}
+     delete [] pep2visited;
+     
+			"""
+	pep1 = peplist[ind*3*ats:(ind+1)*3*ats] #Assumes all peptides have ats atoms in them. The 3 is for 3 coords in 3 dimensions.
+	for i in range(len(potentialInds)):
+		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
+		test = weave.inline(code,['pep1', 'pep2', 'cutsq'], support_code = support, libraries = ['m'])
+		if test == 1:
+			ret.append(potentialInds[i])
+	
+	return ret
 #python version for debugging aligned cluster neighbors
 #specifically for patchy particles -- need three cores to be close to three different cores
 def getNeighAlignPy(ind, cutoff, peplist, potentialInds, ats):
@@ -234,7 +279,7 @@ def getNeigh(ind, cutoff, peplist, potentialInds, ats, metric = 'contact'):
 	elif metric == 'optical':     
 		ret = getNeighContact(ind,cutoff,peplist,potentialInds,ats) 
 	elif metric == 'aligned':     
-		ret = getNeighAlignPy(ind,cutoff,peplist,potentialInds,ats) 
+		ret = getNeighAlign(ind,cutoff,peplist,potentialInds,ats) 
 	return ret
 
 
