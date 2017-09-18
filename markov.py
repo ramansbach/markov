@@ -209,27 +209,21 @@ def getNeighAlignPy(ind, cutoff, peplist, potentialInds, ats):
 	for i in range(len(potentialInds)):
 		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
 
-  		maxminrkl = 0.0
+  		pep2visited = np.zeros(len(pep2)/3)
+  		tally = 0
+  		test = 0
   		for k in range(len(pep1)/3):
-			minrkl = 1.0
 			for l in range(len(pep2)/3):
-				rkl = (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2])
-				if rkl < minrkl:
-					minrkl = rkl
-			if minrkl > maxminrkl:
-				maxminrkl = minrkl	
-  		maxminrlk = 0.0
-  		for k in range(len(pep2)/3):
-			minrlk = 1.0
-			for l in range(len(pep1)/3):
-				rlk = (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2])
-				if rlk < minrlk:
-					minrlk = rlk
-			if minrlk > maxminrlk:
-				maxminrlk = minrlk
-  		if max(maxminrlk,maxminrkl) < cutsq:
-			ret.append(potentialInds[i])
-	
+				if (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2]) < cutsq:
+					if not pep2visited[l]:
+						tally += 1
+						pep2visited[l] = 1
+						break
+			if tally > 2:
+				test = 1	
+				break
+		if test == 1:
+			ret.append(potentialInds[i])	
 	return ret 
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
