@@ -176,7 +176,7 @@ def getNeighContact(ind, cutoff, peplist, potentialInds, ats):
 	
 	return ret
  
- #python version for debugging Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
+#python version for debugging contact cluster neighbors
 def getNeighContactPy(ind, cutoff, peplist, potentialInds, ats):
 	ret = []
 
@@ -198,6 +198,39 @@ def getNeighContactPy(ind, cutoff, peplist, potentialInds, ats):
 	
 	return ret
  
+#python version for debugging aligned cluster neighbors
+#specifically for patchy particles -- need three cores to be close to three different cores
+def getNeighAlignPy(ind, cutoff, peplist, potentialInds, ats):
+	ret = []
+
+	cutsq = cutoff**2
+
+	pep1 = peplist[ind*3*ats:(ind+1)*3*ats] #Assumes all peptides have ats atoms in them. The 3 is for 3 coords in 3 dimensions.
+	for i in range(len(potentialInds)):
+		pep2 = peplist[potentialInds[i]*3*ats:(potentialInds[i]+1)*3*ats]
+
+  		maxminrkl = 0.0
+  		for k in range(len(pep1)/3):
+			minrkl = 1.0
+			for l in range(len(pep2)/3):
+				rkl = (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2])
+				if rkl < minrkl:
+					minrkl = rkl
+			if minrkl > maxminrkl:
+				maxminrkl = minrkl	
+  		maxminrlk = 0.0
+  		for k in range(len(pep2)/3):
+			minrlk = 1.0
+			for l in range(len(pep1)/3):
+				rlk = (pep1[3*k]-pep2[3*l])* (pep1[3*k]-pep2[3*l]) + (pep1[3*k+1]-pep2[3*l+1])* (pep1[3*k+1]-pep2[3*l+1]) + (pep1[3*k+2]-pep2[3*l+2])* (pep1[3*k+2]-pep2[3*l+2])
+				if rlk < minrlk:
+					minrlk = rlk
+			if minrlk > maxminrlk:
+				maxminrlk = minrlk
+  		if max(maxminrlk,maxminrkl) < cutsq:
+			ret.append(potentialInds[i])
+	
+	return ret 
 
 #Gets the neighbors of atom ind from a list of potential indices potentialInds (each of which are indices of the list of all peptides listed in peplist). Being neighbors is defined as two peptides having any two atoms separated by less than cutoff. ats is the number of atoms per peptide in peplist. Summary: ind: index to check, cutoff: distance that defines neighbors (as separation of any two atoms), peplist: list of all atoms, potentialInds: potential neighbors, ats: atoms per peptide.
 def getNeigh(ind, cutoff, peplist, potentialInds, ats, metric = 'contact'):
@@ -206,6 +239,8 @@ def getNeigh(ind, cutoff, peplist, potentialInds, ats, metric = 'contact'):
 		ret = getNeighContact(ind,cutoff,peplist,potentialInds,ats)
 	elif metric == 'optical':     
 		ret = getNeighContact(ind,cutoff,peplist,potentialInds,ats) 
+	elif metric == 'aligned':     
+		ret = getNeighAlignPy(ind,cutoff,peplist,potentialInds,ats) 
 	return ret
 
 
