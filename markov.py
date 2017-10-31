@@ -1,6 +1,6 @@
 import numpy as np, time, random, os, subprocess,numpy.linalg as npla, matplotlib.pyplot as plt, scipy.linalg as spla, time, scipy.stats as spst, scipy.spatial.distance as spsd
 
-from scipy import weave
+import weave
 from operator import sub, div
 #params = {'axes.titlesize':70,
 #		'axes.labelsize':60,
@@ -1417,6 +1417,14 @@ def gyrTens(posList,box_length):
 	return gT
 
 
+def gyrTensPy(posList,box_length):
+	#compute the full gyration tensor and return it
+	gT = np.zeros([3,3])
+	for i in range(3):
+		for j in range(3):
+			gT[i][j] = gyrTensxy(posList,i,j,box_length[i],box_length[j])
+		
+	return gT
 	
 
 def gyrTensxy(posList,x,y,boxlx,boxly):
